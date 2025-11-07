@@ -1,0 +1,39 @@
+Package: geomix
+Type: Package
+Title: Geomix
+Version: 0.1.0
+Author: Gabriel Bertolini
+Maintainer: Gabriel Bertolini <gabertol@gmail.com>
+Description: Provides methods for simultaneous unmixing of compositional data 
+    (e.g., bulk petrology) and continuous distributions (e.g., detrital zircon 
+    ages) in sedimentary provenance analysis. Uses centered log-ratio (CLR) 
+    transformation for compositional data and non-negative least squares (NNLS) 
+    optimization with fair normalization between data blocks. Includes bootstrap 
+    methods for uncertainty quantification.
+License: MIT + file LICENSE
+Encoding: UTF-8
+LazyData: true
+Depends: 
+    R (>= 3.5.0)
+Imports:
+    nnls,
+    compositions,
+    stats,
+    graphics,
+    grDevices,
+    dplyr,
+    tidyr,
+    rlang
+Suggests:
+    testthat (>= 3.0.0),
+    knitr,
+    rmarkdown,
+    ggplot2,
+    dplyr,
+    tidyr,
+    clue
+VignetteBuilder: knitr
+RoxygenNote: 7.2.0
+URL: https://github.com/gabertol/geomix
+BugReports: https://github.com/gabertol/geomix/issues
+
