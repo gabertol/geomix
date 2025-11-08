@@ -1,4 +1,4 @@
-#' @title Utility Functions for Provenance Unmixing
+#' @title Utility Functions for Source Unmixing
 #' @name utils
 #' @keywords internal
 NULL
