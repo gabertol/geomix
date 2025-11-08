@@ -1,13 +1,13 @@
-#' Coupled Provenance Unmixing with Multiple Data Types
-#' 
-#' Performs simultaneous unmixing of multiple data blocks (e.g., detrital zircon 
-#' ages, bulk petrology, heavy minerals) using non-negative least squares (NNLS) 
+#' Coupled Unmixing with Multiple Data Types
+#'
+#' Performs simultaneous unmixing of multiple data blocks (e.g., detrital zircon
+#' ages, bulk petrology, heavy minerals) using non-negative least squares (NNLS)
 #' with appropriate transformations for each data type.
-#' 
-#' @param data_list Named list of data matrices. Each matrix should have samples 
+#'
+#' @param data_list Named list of data matrices. Each matrix should have samples
 #'   as rows and features as columns. Names will be used to identify data blocks.
 #' @param data_types Named character vector specifying the type of each data block.
-#'   Options: "continuous" (default, e.g., KDE-discretized ages), 
+#'   Options: "continuous" (default, e.g., KDE-discretized ages),
 #'   "compositional" (e.g., mineral counts - will apply CLR transformation),
 #'   "clr" (already in CLR space).
 #' @param K Integer, number of sources (end-members) to unmix.
@@ -16,8 +16,8 @@
 #' @param eta_A Step size for updating A (default: 1.0, full update).
 #' @param seed Random seed for reproducibility (default: 123).
 #' @param verbose Logical, print progress? (default: FALSE).
-#' 
-#' @return A list of class "provunmix" containing:
+#'
+#' @return A list of class "unmix_result" containing:
 #'   \item{A}{Mixing matrix (N x K), rows sum to 1}
 #'   \item{B_list}{List of source signature matrices (K x F_i for each block)}
 #'   \item{recon_list}{List of reconstructed data matrices}
@@ -27,34 +27,34 @@
 #'   \item{iters}{Number of iterations performed}
 #'   \item{converged}{Logical, did algorithm converge?}
 #'   \item{call}{The matched call}
-#' 
+#'
 #' @examples
 #' \dontrun{
 #' # Simulate data
 #' N <- 50  # samples
 #' K <- 3   # sources
-#' 
+#'
 #' # Continuous data (e.g., detrital zircon ages)
 #' DZ <- matrix(rnorm(N * 100), N, 100)
-#' 
+#'
 #' # Compositional data (e.g., mineral counts)
 #' BP_counts <- matrix(rpois(N * 10, lambda = 20), N, 10)
-#' 
+#'
 #' # Unmix
-#' result <- provenance_unmix(
+#' result <- unmix(
 #'   data_list = list(DZ = DZ, BP = BP_counts),
 #'   data_types = c(DZ = "continuous", BP = "compositional"),
 #'   K = 3
 #' )
-#' 
+#'
 #' # Examine results
 #' print(result)
 #' plot(result)
 #' }
-#' 
+#'
 #' @export
 #' @importFrom compositions clr acomp
-provenance_unmix <- function(data_list, 
+unmix <- function(data_list, 
                               data_types = NULL,
                               K, 
                               max_iter = 2000, 
@@ -211,18 +211,18 @@ provenance_unmix <- function(data_list,
     call = match.call()
   )
   
-  class(result) <- "provunmix"
+  class(result) <- "unmix_result"
   return(result)
 }
 
-#' Print Method for provunmix Objects
-#' 
-#' @param x A provunmix object
+#' Print Method for unmix_result Objects
+#'
+#' @param x An unmix_result object
 #' @param ... Additional arguments (unused)
 #' @export
-print.provunmix <- function(x, ...) {
-  cat("Provenance Unmixing Results\n")
-  cat("===========================\n\n")
+print.unmix_result <- function(x, ...) {
+  cat("Unmixing Results\n")
+  cat("================\n\n")
   cat("Data blocks:", length(x$B_list), "\n")
   for (i in seq_along(x$data_names)) {
     name <- x$data_names[i]
@@ -239,14 +239,14 @@ print.provunmix <- function(x, ...) {
   invisible(x)
 }
 
-#' Summary Method for provunmix Objects
-#' 
-#' @param object A provunmix object
+#' Summary Method for unmix_result Objects
+#'
+#' @param object An unmix_result object
 #' @param ... Additional arguments (unused)
 #' @export
-summary.provunmix <- function(object, ...) {
-  cat("Provenance Unmixing Summary\n")
-  cat("===========================\n\n")
+summary.unmix_result <- function(object, ...) {
+  cat("Unmixing Summary\n")
+  cat("================\n\n")
   print(object)
   cat("\nMixing Matrix A (first 6 samples):\n")
   print(head(object$A))

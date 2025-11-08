@@ -1,6 +1,6 @@
-#' Data Preprocessing Functions for Provenance Analysis
-#' 
-#' Functions to prepare raw data for provenance unmixing, including
+#' Data Preprocessing Functions for Source Analysis
+#'
+#' Functions to prepare raw data for source unmixing, including
 #' KDE discretization for detrital zircon ages and compositional data
 #' preparation for bulk petrology.
 #' 
@@ -11,7 +11,7 @@ NULL
 #'
 #' Converts continuous distributional measurements into discretized probability
 #' density functions (PDFs) via kernel density estimation (KDE). This is the
-#' recommended format for the "continuous" data type in provenance_unmix().
+#' recommended format for the "continuous" data type in unmix().
 #'
 #' @param data_df Data frame with columns: sample (character/factor) and
 #'   one or more numeric columns containing continuous measurements (e.g.,
@@ -37,7 +37,7 @@ NULL
 #'   \item{vars}{Character vector of feature names}
 #'   \item{grids}{Named list of evaluation grids (one per feature)}
 #'   \item{n_points}{Number of bins per feature}
-#'   \item{data_type}{Character, type for use in provenance_unmix ("continuous")}
+#'   \item{data_type}{Character, type for use in unmix ("continuous")}
 #'
 #' @details
 #' For each sample and each variable:
@@ -77,8 +77,8 @@ NULL
 #'   vars = c("age_ft", "age_u_pb")
 #' )
 #'
-#' # Use in provenance_unmix
-#' result <- provenance_unmix(
+#' # Use in unmix
+#' result <- unmix(
 #'   data_list = list(DZ = kde_block$data_mat, APT = apt_block$data_mat),
 #'   data_types = c(DZ = "continuous", APT = "continuous"),
 #'   K = 3
@@ -278,7 +278,7 @@ build_kde_block <- function(data_df,
 #'   \item{components}{Character vector of component names}
 #'   \item{total_counts}{Integer vector of total counts per sample}
 #'   \item{is_clr}{Logical, was CLR applied?}
-#'   \item{data_type}{Character, type for use in provenance_unmix}
+#'   \item{data_type}{Character, type for use in unmix}
 #'
 #' @details
 #' **Input Format:**
@@ -328,8 +328,8 @@ build_kde_block <- function(data_df,
 #'   apply_clr = TRUE  # transform to CLR
 #' )
 #'
-#' # Use in provenance_unmix
-#' result <- provenance_unmix(
+#' # Use in unmix
+#' result <- unmix(
 #'   data_list = list(DZ = dz_mat, BP = bp_block$data_mat),
 #'   data_types = c(DZ = "continuous", BP = bp_block$data_type),
 #'   K = 3
@@ -444,7 +444,7 @@ build_point_counting_block <- function(counts_df,
 #' Build Compositional Block from Data Already in Compositional Form
 #'
 #' Processes data that are ALREADY compositional (i.e., proportions/compositions
-#' that sum to 1) for use in provenance unmixing. This is for data that are
+#' that sum to 1) for use in source unmixing. This is for data that are
 #' already closed to the simplex, NOT for raw counts.
 #'
 #' @param comp_df Data frame with columns: sample (character/factor) and
@@ -469,7 +469,7 @@ build_point_counting_block <- function(counts_df,
 #'   \item{components}{Character vector of component names}
 #'   \item{row_sums}{Numeric vector of row sums (should be ~1.0)}
 #'   \item{is_clr}{Logical, was CLR applied?}
-#'   \item{data_type}{Character, type for use in provenance_unmix}
+#'   \item{data_type}{Character, type for use in unmix}
 #'
 #' @details
 #' **Input Format:**
@@ -509,8 +509,8 @@ build_point_counting_block <- function(counts_df,
 #'   check_closure = TRUE
 #' )
 #'
-#' # Use in provenance_unmix
-#' result <- provenance_unmix(
+#' # Use in unmix
+#' result <- unmix(
 #'   data_list = list(DZ = dz_mat, Modal = comp_block$data_mat),
 #'   data_types = c(DZ = "continuous", Modal = comp_block$data_type),
 #'   K = 3
@@ -633,7 +633,7 @@ build_compositional_block <- function(comp_df,
 #'   Can be single logical or named list.
 #' @param verbose Print progress messages? (default: TRUE)
 #' 
-#' @return A list ready for provenance_unmix():
+#' @return A list ready for unmix():
 #'   \item{data_list}{Named list of data matrices}
 #'   \item{data_types}{Named character vector of data types}
 #'   \item{samples}{Common sample names (aligned)}
@@ -700,7 +700,7 @@ build_compositional_block <- function(comp_df,
 #' )
 #'
 #' # Unmix directly
-#' result <- provenance_unmix(
+#' result <- unmix(
 #'   data_list = prepared$data_list,
 #'   data_types = prepared$data_types,
 #'   K = 3

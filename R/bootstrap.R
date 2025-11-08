@@ -1,9 +1,9 @@
-#' Bootstrap Uncertainty Estimation for Provenance Unmixing
-#' 
-#' Performs non-parametric bootstrap to estimate uncertainty in mixing 
+#' Bootstrap Uncertainty Estimation for Source Unmixing
+#'
+#' Performs non-parametric bootstrap to estimate uncertainty in mixing
 #' proportions (A matrix) and source signatures (B matrices).
-#' 
-#' @param data_list Named list of data matrices (same as provenance_unmix)
+#'
+#' @param data_list Named list of data matrices (same as unmix)
 #' @param data_types Character vector specifying data types
 #' @param K Number of sources
 #' @param n_boot Number of bootstrap iterations (default: 100)
@@ -11,9 +11,9 @@
 #' @param parallel Logical, use parallel processing? (default: FALSE)
 #' @param n_cores Number of cores if parallel=TRUE (default: detectCores()-1)
 #' @param verbose Logical, print progress? (default: TRUE)
-#' @param ... Additional arguments passed to provenance_unmix
-#' 
-#' @return A list of class "provunmix_boot" containing:
+#' @param ... Additional arguments passed to unmix
+#'
+#' @return A list of class "bootstrap_result" containing:
 #'   \item{fit_original}{Original fit on full dataset}
 #'   \item{A_boot}{Array (n_boot x N x K) of bootstrapped A matrices}
 #'   \item{B_boot_list}{List of arrays (n_boot x K x F) for each data block}
@@ -27,19 +27,19 @@
 #' @examples
 #' \dontrun{
 #' # Bootstrap uncertainty estimation
-#' boot_result <- bootstrap_provunmix(
+#' boot_result <- bootstrap_unmix(
 #'   data_list = list(DZ = DZ, BP = BP_counts),
 #'   data_types = c(DZ = "continuous", BP = "compositional"),
 #'   K = 3,
 #'   n_boot = 100
 #' )
-#' 
+#'
 #' # Plot confidence intervals
 #' plot(boot_result, type = "uncertainty")
 #' }
-#' 
+#'
 #' @export
-bootstrap_provunmix <- function(data_list,
+bootstrap_unmix <- function(data_list,
                                  data_types = NULL,
                                  K,
                                  n_boot = 100,
@@ -54,7 +54,7 @@ bootstrap_provunmix <- function(data_list,
   }
   
   # Original fit
-  fit_orig <- provenance_unmix(
+  fit_orig <- unmix(
     data_list = data_list,
     data_types = data_types,
     K = K,
@@ -85,7 +85,7 @@ bootstrap_provunmix <- function(data_list,
     
     # Fit on bootstrap sample
     fit_boot <- tryCatch({
-      provenance_unmix(
+      unmix(
         data_list = data_boot,
         data_types = data_types,
         K = K,
@@ -123,7 +123,7 @@ bootstrap_provunmix <- function(data_list,
     on.exit(parallel::stopCluster(cl))
     
     # Export necessary objects
-    parallel::clusterExport(cl, c("data_list", "data_types", "K", "provenance_unmix"),
+    parallel::clusterExport(cl, c("data_list", "data_types", "K", "unmix"),
                            envir = environment())
     
     boot_results <- parallel::parLapply(cl, 1:n_boot, bootstrap_iter)
@@ -188,18 +188,18 @@ bootstrap_provunmix <- function(data_list,
     call = match.call()
   )
   
-  class(result) <- "provunmix_boot"
+  class(result) <- "bootstrap_result"
   return(result)
 }
 
-#' Print Method for provunmix_boot Objects
-#' 
-#' @param x A provunmix_boot object
+#' Print Method for bootstrap_result Objects
+#'
+#' @param x A bootstrap_result object
 #' @param ... Additional arguments (unused)
 #' @export
-print.provunmix_boot <- function(x, ...) {
-  cat("Bootstrap Provenance Unmixing Results\n")
-  cat("======================================\n\n")
+print.bootstrap_result <- function(x, ...) {
+  cat("Bootstrap Unmixing Results\n")
+  cat("==========================\n\n")
   cat("Number of bootstrap iterations:", x$n_boot, "\n")
   cat("Confidence level:", x$conf_level * 100, "%\n")
   cat("\nOriginal fit:\n")
@@ -210,14 +210,14 @@ print.provunmix_boot <- function(x, ...) {
   invisible(x)
 }
 
-#' Summary Method for provunmix_boot Objects
-#' 
-#' @param object A provunmix_boot object
+#' Summary Method for bootstrap_result Objects
+#'
+#' @param object A bootstrap_result object
 #' @param ... Additional arguments (unused)
 #' @export
-summary.provunmix_boot <- function(object, ...) {
-  cat("Bootstrap Provenance Unmixing Summary\n")
-  cat("======================================\n\n")
+summary.bootstrap_result <- function(object, ...) {
+  cat("Bootstrap Unmixing Summary\n")
+  cat("==========================\n\n")
   print(object)
   
   cat("\n\nMixing Matrix A with Confidence Intervals (first 3 samples, first 3 sources):\n")

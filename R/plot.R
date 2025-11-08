@@ -1,16 +1,16 @@
-#' Plot Methods for Provenance Unmixing Results
-#' 
-#' Visualize provenance unmixing results including mixing proportions,
+#' Plot Methods for Unmixing Results
+#'
+#' Visualize unmixing results including mixing proportions,
 #' source signatures, and uncertainty estimates.
-#' 
-#' @param x A provunmix or provunmix_boot object
+#'
+#' @param x An unmix_result or bootstrap_result object
 #' @param type Type of plot: "mixing" (default), "sources", "loss", "uncertainty"
 #' @param ... Additional plotting parameters
-#' 
+#'
 #' @export
-plot.provunmix <- function(x, type = c("mixing", "sources", "loss"), ...) {
+plot.unmix_result <- function(x, type = c("mixing", "sources", "loss"), ...) {
   type <- match.arg(type)
-  
+
   if (type == "mixing") {
     plot_mixing_matrix(x, ...)
   } else if (type == "sources") {
@@ -21,9 +21,9 @@ plot.provunmix <- function(x, type = c("mixing", "sources", "loss"), ...) {
 }
 
 #' @export
-plot.provunmix_boot <- function(x, type = c("mixing", "uncertainty", "sources"), ...) {
+plot.bootstrap_result <- function(x, type = c("mixing", "uncertainty", "sources"), ...) {
   type <- match.arg(type)
-  
+
   if (type == "mixing") {
     plot_mixing_matrix(x$fit_original, ...)
   } else if (type == "uncertainty") {
@@ -34,8 +34,8 @@ plot.provunmix_boot <- function(x, type = c("mixing", "uncertainty", "sources"),
 }
 
 #' Plot Mixing Matrix
-#' 
-#' @param x A provunmix object
+#'
+#' @param x An unmix_result object
 #' @param samples Optional vector of sample indices to plot (default: all)
 #' @param ... Additional parameters
 #' @keywords internal
@@ -73,8 +73,8 @@ plot_mixing_matrix <- function(x, samples = NULL, ...) {
 }
 
 #' Plot Source Signatures
-#' 
-#' @param x A provunmix object
+#'
+#' @param x An unmix_result object
 #' @param block Which data block to plot (default: 1)
 #' @param ... Additional parameters
 #' @keywords internal
@@ -105,8 +105,8 @@ plot_sources <- function(x, block = 1, ...) {
 }
 
 #' Plot Loss History
-#' 
-#' @param x A provunmix object
+#'
+#' @param x An unmix_result object
 #' @param log Logical, use log scale for y-axis? (default: TRUE)
 #' @param ... Additional parameters
 #' @keywords internal
@@ -139,8 +139,8 @@ plot_loss_history <- function(x, log = TRUE, ...) {
 }
 
 #' Plot Uncertainty Estimates
-#' 
-#' @param x A provunmix_boot object
+#'
+#' @param x A bootstrap_result object
 #' @param samples Optional vector of sample indices to plot (default: first 10)
 #' @param ... Additional parameters
 #' @keywords internal
