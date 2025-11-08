@@ -232,3 +232,101 @@ Funções exportadas adicionadas:
 
 Função mantida (deprecada):
 - `build_bp_block`
+
+## Múltiplos Blocos do Mesmo Tipo (NOVO!)
+
+A função `prepare_data_blocks()` agora suporta **múltiplos blocos do mesmo tipo** através de listas nomeadas.
+
+### Exemplo: 2 KDE + 3 Composicionais
+
+```r
+prepared <- prepare_data_blocks(
+  # 2 blocos KDE
+  kde_raw = list(
+    Zircon = zircon_ages,
+    Apatite = apatite_ages
+  ),
+  kde_vars = list(
+    Zircon = c("age_concordia", "ti_temp"),
+    Apatite = c("age_u_pb", "age_fission_track")
+  ),
+
+  # 3 blocos composicionais
+  compositional_raw = list(
+    MajorOxides = major_oxides,
+    TraceElements = trace_elements,
+    ModalMin = modal_mineralogy
+  ),
+  compositional_vars = list(
+    MajorOxides = c("SiO2", "Al2O3", "FeO", "MgO"),
+    TraceElements = c("Zr", "Y", "Nb", "La", "Ce"),
+    ModalMin = c("Qtz", "Fsp", "Mica", "Amph")
+  ),
+
+  apply_clr_compositional = TRUE
+)
+
+# Resultado: 5 blocos preparados
+names(prepared$data_list)
+# [1] "Zircon"         "Apatite"        "MajorOxides"
+# [4] "TraceElements"  "ModalMin"
+```
+
+### Como Funciona
+
+**Sintaxe:**
+- Para **um único bloco**: passe um `data.frame`
+- Para **múltiplos blocos**: passe uma **lista nomeada** de `data.frames`
+
+**Parâmetros:**
+- Se parâmetro é **valor único**: aplica a todos os blocos
+- Se parâmetro é **lista nomeada**: aplica valor específico a cada bloco
+
+**Exemplos:**
+
+```r
+# Parâmetro global (aplica a todos)
+apply_clr_compositional = TRUE
+
+# Parâmetro específico por bloco
+apply_clr_compositional = list(
+  MajorOxides = TRUE,
+  TraceElements = TRUE,
+  ModalMin = FALSE
+)
+
+# Número de pontos KDE global
+n_points_kde = 129
+
+# Número de pontos KDE específico
+n_points_kde = list(
+  Zircon = 129,
+  Apatite = 64
+)
+```
+
+### Compatibilidade
+
+- ✅ **Data.frame único** (comportamento original): funciona normalmente
+- ✅ **Lista nomeada** (novo): processa múltiplos blocos
+- ✅ **Misto**: pode combinar data.frame único para um tipo e lista para outro
+
+```r
+# Exemplo misto: 1 KDE + 3 Composicionais
+prepared <- prepare_data_blocks(
+  kde_raw = zircon_ages,  # data.frame único
+  compositional_raw = list(  # lista nomeada
+    MajorOxides = major_oxides,
+    TraceElements = trace_elements,
+    ModalMin = modal_mineralogy
+  ),
+  kde_vars = c("age_concordia", "ti_temp"),
+  compositional_vars = list(
+    MajorOxides = c("SiO2", "Al2O3"),
+    TraceElements = c("Zr", "Y"),
+    ModalMin = c("Qtz", "Fsp")
+  )
+)
+```
+
+Veja `MULTIPLE_BLOCKS_EXAMPLE.md` para exemplos completos e detalhados!

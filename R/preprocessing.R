@@ -618,18 +618,25 @@ build_bp_block <- function(...) {
 #'
 #' Convenience function to prepare multiple data blocks at once.
 #' Combines KDE, point counting, and compositional data preparation with
-#' alignment checking.
+#' alignment checking. Supports multiple blocks of the same type via named lists.
 #'
-#' @param kde_raw Data frame with KDE data (e.g., detrital zircon ages). Optional.
-#' @param point_counting_raw Data frame with point counting data (discrete counts). Optional.
-#' @param compositional_raw Data frame with compositional data (already proportions). Optional.
+#' @param kde_raw Data frame or named list of data frames with KDE data
+#'   (e.g., detrital zircon ages). Optional.
+#' @param point_counting_raw Data frame or named list of data frames with
+#'   point counting data (discrete counts). Optional.
+#' @param compositional_raw Data frame or named list of data frames with
+#'   compositional data (already proportions). Optional.
 #' @param other_raw Named list of additional data frames (optional)
-#' @param kde_vars Character vector of variables for KDE (e.g., age columns)
-#' @param point_counting_vars Character vector of component columns for point counting
-#' @param compositional_vars Character vector of component columns for compositional data
-#' @param n_points_kde Number of bins for KDE discretization (default: 129)
-#' @param apply_clr_point_counting Apply CLR to point counting? (default: FALSE)
-#' @param apply_clr_compositional Apply CLR to compositional? (default: FALSE)
+#' @param kde_vars Character vector or named list of character vectors for KDE variables.
+#'   If a single vector, applies to all KDE blocks. If named list, must match names in kde_raw.
+#' @param point_counting_vars Character vector or named list for point counting variables.
+#' @param compositional_vars Character vector or named list for compositional variables.
+#' @param n_points_kde Number of bins for KDE discretization (default: 129).
+#'   Can be a single value or named list matching kde_raw.
+#' @param apply_clr_point_counting Apply CLR to point counting? (default: FALSE).
+#'   Can be single logical or named list.
+#' @param apply_clr_compositional Apply CLR to compositional? (default: FALSE).
+#'   Can be single logical or named list.
 #' @param verbose Print progress messages? (default: TRUE)
 #' 
 #' @return A list ready for provenance_unmix():
@@ -640,23 +647,62 @@ build_bp_block <- function(...) {
 #' 
 #' @examples
 #' \dontrun{
-#' # Example 1: KDE data (detrital zircon) + Point Counting data (petrography)
+#' # Example 1: Single block per type
 #' prepared <- prepare_data_blocks(
 #'   kde_raw = my_dz_ages,
 #'   point_counting_raw = my_mineral_counts,
 #'   kde_vars = c("age_concordia", "ti_temp"),
 #'   point_counting_vars = c("Qtz", "Fsp", "Lith", "Musc"),
-#'   n_points_kde = 129,
-#'   apply_clr_point_counting = FALSE  # CLR will be applied in provenance_unmix
+#'   n_points_kde = 129
 #' )
 #'
-#' # Example 2: Compositional data (already proportions) + Point Counting
+#' # Example 2: Multiple KDE blocks
 #' prepared <- prepare_data_blocks(
-#'   compositional_raw = my_geochemistry,  # e.g., oxide proportions
-#'   point_counting_raw = my_heavy_minerals,
-#'   compositional_vars = c("SiO2", "Al2O3", "FeO", "MgO"),
-#'   point_counting_vars = c("Zrn", "Ap", "Ttn", "Grt"),
+#'   kde_raw = list(
+#'     Zircon = zircon_ages,
+#'     Apatite = apatite_ages
+#'   ),
+#'   kde_vars = list(
+#'     Zircon = c("age_concordia", "ti_temp"),
+#'     Apatite = c("age_u_pb", "age_fission_track")
+#'   )
+#' )
+#'
+#' # Example 3: Multiple compositional blocks
+#' prepared <- prepare_data_blocks(
+#'   compositional_raw = list(
+#'     MajorOxides = major_oxides,
+#'     TraceElements = trace_elements,
+#'     ModalMin = modal_mineralogy
+#'   ),
+#'   compositional_vars = list(
+#'     MajorOxides = c("SiO2", "Al2O3", "FeO", "MgO"),
+#'     TraceElements = c("Zr", "Y", "Nb", "La", "Ce"),
+#'     ModalMin = c("Qtz", "Fsp", "Mica", "Amph")
+#'   ),
 #'   apply_clr_compositional = TRUE
+#' )
+#'
+#' # Example 4: Mixed - 2 KDE + 3 Compositional
+#' prepared <- prepare_data_blocks(
+#'   kde_raw = list(
+#'     Zircon = zircon_ages,
+#'     Apatite = apatite_ages
+#'   ),
+#'   compositional_raw = list(
+#'     MajorOxides = major_oxides,
+#'     TraceElements = trace_elements,
+#'     ModalMin = modal_mineralogy
+#'   ),
+#'   kde_vars = list(
+#'     Zircon = c("age_concordia"),
+#'     Apatite = c("age_u_pb")
+#'   ),
+#'   compositional_vars = list(
+#'     MajorOxides = c("SiO2", "Al2O3", "FeO"),
+#'     TraceElements = c("Zr", "Y", "Nb"),
+#'     ModalMin = c("Qtz", "Fsp", "Mica")
+#'   )
 #' )
 #'
 #' # Unmix directly
@@ -723,49 +769,141 @@ prepare_data_blocks <- function(kde_raw = NULL,
   data_types <- character()
   metadata_list <- list()
 
+  # Helper function to get parameter for specific block
+  get_param <- function(param, block_name, default = NULL) {
+    if (is.null(param)) return(default)
+    if (is.list(param) && !is.data.frame(param)) {
+      if (block_name %in% names(param)) {
+        return(param[[block_name]])
+      } else {
+        stop(sprintf("Block '%s' not found in parameter list", block_name))
+      }
+    } else {
+      return(param)
+    }
+  }
+
   # Process KDE data
   if (!is.null(kde_raw)) {
-    if (verbose) message("Processing KDE data (e.g., detrital zircon ages)...")
+    # Check if single data.frame or list of data.frames
+    if (is.data.frame(kde_raw)) {
+      # Single block
+      if (verbose) message("Processing KDE data (e.g., detrital zircon ages)...")
 
-    kde_block <- build_dz_kde_block(
-      ages_df = kde_raw,
-      age_vars = kde_vars,
-      n_points = n_points_kde
-    )
+      kde_block <- build_dz_kde_block(
+        ages_df = kde_raw,
+        age_vars = kde_vars,
+        n_points = n_points_kde
+      )
 
-    data_list[["KDE"]] <- kde_block$DZ_mat
-    data_types["KDE"] <- "continuous"
-    metadata_list[["KDE"]] <- kde_block
+      data_list[["KDE"]] <- kde_block$DZ_mat
+      data_types["KDE"] <- "continuous"
+      metadata_list[["KDE"]] <- kde_block
+
+    } else if (is.list(kde_raw)) {
+      # Multiple blocks
+      if (is.null(names(kde_raw))) {
+        stop("kde_raw list must have names")
+      }
+
+      for (block_name in names(kde_raw)) {
+        if (verbose) message(sprintf("Processing KDE data: %s...", block_name))
+
+        kde_block <- build_dz_kde_block(
+          ages_df = kde_raw[[block_name]],
+          age_vars = get_param(kde_vars, block_name, NULL),
+          n_points = get_param(n_points_kde, block_name, 129)
+        )
+
+        data_list[[block_name]] <- kde_block$DZ_mat
+        data_types[block_name] <- "continuous"
+        metadata_list[[block_name]] <- kde_block
+      }
+    } else {
+      stop("kde_raw must be a data.frame or a named list of data.frames")
+    }
   }
 
   # Process Point Counting data
   if (!is.null(point_counting_raw)) {
-    if (verbose) message("Processing point counting data (discrete counts)...")
+    # Check if single data.frame or list of data.frames
+    if (is.data.frame(point_counting_raw)) {
+      # Single block
+      if (verbose) message("Processing point counting data (discrete counts)...")
 
-    pc_block <- build_point_counting_block(
-      counts_df = point_counting_raw,
-      mineral_cols = point_counting_vars,
-      apply_clr = apply_clr_point_counting
-    )
+      pc_block <- build_point_counting_block(
+        counts_df = point_counting_raw,
+        mineral_cols = point_counting_vars,
+        apply_clr = apply_clr_point_counting
+      )
 
-    data_list[["PointCounting"]] <- pc_block$data_mat
-    data_types["PointCounting"] <- pc_block$data_type
-    metadata_list[["PointCounting"]] <- pc_block
+      data_list[["PointCounting"]] <- pc_block$data_mat
+      data_types["PointCounting"] <- pc_block$data_type
+      metadata_list[["PointCounting"]] <- pc_block
+
+    } else if (is.list(point_counting_raw)) {
+      # Multiple blocks
+      if (is.null(names(point_counting_raw))) {
+        stop("point_counting_raw list must have names")
+      }
+
+      for (block_name in names(point_counting_raw)) {
+        if (verbose) message(sprintf("Processing point counting data: %s...", block_name))
+
+        pc_block <- build_point_counting_block(
+          counts_df = point_counting_raw[[block_name]],
+          mineral_cols = get_param(point_counting_vars, block_name, NULL),
+          apply_clr = get_param(apply_clr_point_counting, block_name, FALSE)
+        )
+
+        data_list[[block_name]] <- pc_block$data_mat
+        data_types[block_name] <- pc_block$data_type
+        metadata_list[[block_name]] <- pc_block
+      }
+    } else {
+      stop("point_counting_raw must be a data.frame or a named list of data.frames")
+    }
   }
 
   # Process Compositional data
   if (!is.null(compositional_raw)) {
-    if (verbose) message("Processing compositional data (already proportions)...")
+    # Check if single data.frame or list of data.frames
+    if (is.data.frame(compositional_raw)) {
+      # Single block
+      if (verbose) message("Processing compositional data (already proportions)...")
 
-    comp_block <- build_compositional_block(
-      comp_df = compositional_raw,
-      comp_cols = compositional_vars,
-      apply_clr = apply_clr_compositional
-    )
+      comp_block <- build_compositional_block(
+        comp_df = compositional_raw,
+        comp_cols = compositional_vars,
+        apply_clr = apply_clr_compositional
+      )
 
-    data_list[["Compositional"]] <- comp_block$data_mat
-    data_types["Compositional"] <- comp_block$data_type
-    metadata_list[["Compositional"]] <- comp_block
+      data_list[["Compositional"]] <- comp_block$data_mat
+      data_types["Compositional"] <- comp_block$data_type
+      metadata_list[["Compositional"]] <- comp_block
+
+    } else if (is.list(compositional_raw)) {
+      # Multiple blocks
+      if (is.null(names(compositional_raw))) {
+        stop("compositional_raw list must have names")
+      }
+
+      for (block_name in names(compositional_raw)) {
+        if (verbose) message(sprintf("Processing compositional data: %s...", block_name))
+
+        comp_block <- build_compositional_block(
+          comp_df = compositional_raw[[block_name]],
+          comp_cols = get_param(compositional_vars, block_name, NULL),
+          apply_clr = get_param(apply_clr_compositional, block_name, FALSE)
+        )
+
+        data_list[[block_name]] <- comp_block$data_mat
+        data_types[block_name] <- comp_block$data_type
+        metadata_list[[block_name]] <- comp_block
+      }
+    } else {
+      stop("compositional_raw must be a data.frame or a named list of data.frames")
+    }
   }
 
   # Process HM (deprecated, map to point counting)
