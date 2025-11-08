@@ -2,7 +2,9 @@
 
 export(bootstrap_provunmix)
 export(build_bp_block)
+export(build_compositional_block)
 export(build_dz_kde_block)
+export(build_point_counting_block)
 export(plot.provunmix)
 export(plot.provunmix_boot)
 export(prepare_data_blocks)
