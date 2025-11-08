@@ -7,16 +7,17 @@
 #' @name preprocessing
 NULL
 
-#' Build KDE-Discretized Block from Detrital Zircon Ages
-#' 
-#' Converts raw detrital zircon age measurements into discretized probability
+#' Build KDE-Discretized Block from Continuous Distributional Data
+#'
+#' Converts continuous distributional measurements into discretized probability
 #' density functions (PDFs) via kernel density estimation (KDE). This is the
 #' recommended format for the "continuous" data type in provenance_unmix().
-#' 
-#' @param ages_df Data frame with columns: sample (character/factor) and 
-#'   one or more numeric columns containing age measurements (e.g., age_concordia,
-#'   ti_temp, eu_eu, etc.). Each row is one grain measurement.
-#' @param age_vars Character vector of column names to discretize. If NULL,
+#'
+#' @param data_df Data frame with columns: sample (character/factor) and
+#'   one or more numeric columns containing continuous measurements (e.g.,
+#'   detrital zircon ages, apatite fission track ages, trace element ratios, etc.).
+#'   Each row is one grain/measurement.
+#' @param vars Character vector of column names to discretize. If NULL,
 #'   uses all numeric columns except 'sample'.
 #' @param n_points Integer, number of bins for discretization (default: 129).
 #'   Higher = more resolution, but more memory.
@@ -28,84 +29,96 @@ NULL
 #'   more, < 1 smooth less.
 #' @param samples_order Optional character vector specifying sample order in
 #'   output matrix. If NULL, uses alphabetical order.
-#' 
+#'
 #' @return A list with components:
-#'   \item{DZ_mat}{Matrix (N x F*n_points) of discretized PDFs, where N is
-#'     number of samples and F is number of features (age_vars)}
-#'   \item{samples}{Character vector of sample names (row names of DZ_mat)}
-#'   \item{age_vars}{Character vector of feature names}
+#'   \item{data_mat}{Matrix (N x F*n_points) of discretized PDFs, where N is
+#'     number of samples and F is number of features (vars)}
+#'   \item{samples}{Character vector of sample names (row names of data_mat)}
+#'   \item{vars}{Character vector of feature names}
 #'   \item{grids}{Named list of evaluation grids (one per feature)}
 #'   \item{n_points}{Number of bins per feature}
-#' 
+#'   \item{data_type}{Character, type for use in provenance_unmix ("continuous")}
+#'
 #' @details
-#' For each sample and each age variable:
+#' For each sample and each variable:
 #' 1. Compute bandwidth using specified method (SJ or nrd0)
 #' 2. Create evaluation grid from quantiles (probs) of all data
 #' 3. Evaluate KDE at grid points
 #' 4. Normalize to unit area (trapezoidal rule)
-#' 
+#'
 #' The resulting matrix has F*n_points columns, with columns ordered as:
 #' [var1_bin1, var1_bin2, ..., var1_binN, var2_bin1, ..., varF_binN]
-#' 
+#'
 #' @examples
 #' \dontrun{
-#' # Example data
+#' # Example 1: Detrital zircon ages
 #' dz_raw <- data.frame(
 #'   sample = rep(c("S1", "S2", "S3"), each = 100),
 #'   age_concordia = c(rnorm(100, 500, 50), rnorm(100, 1000, 100), rnorm(100, 1500, 150)),
 #'   ti_temp = rnorm(300, 750, 50),
 #'   th_u = rlnorm(300, 0, 0.5)
 #' )
-#' 
-#' # Build KDE block
-#' dz_block <- build_dz_kde_block(
-#'   ages_df = dz_raw,
-#'   age_vars = c("age_concordia", "ti_temp", "th_u"),
+#'
+#' kde_block <- build_kde_block(
+#'   data_df = dz_raw,
+#'   vars = c("age_concordia", "ti_temp", "th_u"),
 #'   n_points = 129
 #' )
-#' 
+#'
+#' # Example 2: Apatite fission track ages
+#' apt_raw <- data.frame(
+#'   sample = rep(c("S1", "S2", "S3"), each = 80),
+#'   age_ft = rnorm(240, 100, 20),
+#'   age_u_pb = rnorm(240, 500, 50)
+#' )
+#'
+#' apt_block <- build_kde_block(
+#'   data_df = apt_raw,
+#'   vars = c("age_ft", "age_u_pb")
+#' )
+#'
 #' # Use in provenance_unmix
 #' result <- provenance_unmix(
-#'   data_list = list(DZ = dz_block$DZ_mat, BP = bp_counts),
-#'   data_types = c(DZ = "continuous", BP = "compositional"),
+#'   data_list = list(DZ = kde_block$data_mat, APT = apt_block$data_mat),
+#'   data_types = c(DZ = "continuous", APT = "continuous"),
 #'   K = 3
 #' )
 #' }
-#' 
+#'
 #' @export
-build_dz_kde_block <- function(ages_df,
-                                age_vars = NULL,
-                                n_points = 129,
-                                probs = c(0.03, 0.97),
-                                bw_method = c("SJ", "nrd0"),
-                                bw_multiplier = 1.0,
-                                samples_order = NULL) {
-  
+build_kde_block <- function(data_df,
+                            vars = NULL,
+                            n_points = 129,
+                            probs = c(0.03, 0.97),
+                            bw_method = c("SJ", "nrd0"),
+                            bw_multiplier = 1.0,
+                            samples_order = NULL) {
+
   bw_method <- match.arg(bw_method)
-  
+
   # Validate input
-  if (!"sample" %in% names(ages_df)) {
-    stop("ages_df must have a 'sample' column")
+  if (!"sample" %in% names(data_df)) {
+    stop("data_df must have a 'sample' column")
   }
-  
-  # Determine age variables
-  if (is.null(age_vars)) {
-    age_vars <- setdiff(names(ages_df), "sample")
-    age_vars <- age_vars[sapply(ages_df[age_vars], is.numeric)]
-    if (length(age_vars) == 0) {
+
+  # Determine variables
+  if (is.null(vars)) {
+    vars <- setdiff(names(data_df), "sample")
+    vars <- vars[sapply(data_df[vars], is.numeric)]
+    if (length(vars) == 0) {
       stop("No numeric columns found (besides 'sample')")
     }
-    message("Using age variables: ", paste(age_vars, collapse = ", "))
+    message("Using variables: ", paste(vars, collapse = ", "))
   }
-  
-  # Check all age_vars exist
-  missing_vars <- setdiff(age_vars, names(ages_df))
+
+  # Check all vars exist
+  missing_vars <- setdiff(vars, names(data_df))
   if (length(missing_vars) > 0) {
-    stop("Variables not found in ages_df: ", paste(missing_vars, collapse = ", "))
+    stop("Variables not found in data_df: ", paste(missing_vars, collapse = ", "))
   }
-  
+
   # Get unique samples
-  samples <- unique(ages_df$sample)
+  samples <- unique(data_df$sample)
   if (!is.null(samples_order)) {
     if (!all(samples_order %in% samples)) {
       stop("Some samples in samples_order not found in data")
@@ -116,8 +129,8 @@ build_dz_kde_block <- function(ages_df,
   }
   
   N <- length(samples)
-  F <- length(age_vars)
-  
+  F <- length(vars)
+
   # Helper: get evaluation grid
   get_evalpoints <- function(x, n = n_points, probs = c(0.03, 0.97)) {
     x <- x[is.finite(x)]
@@ -133,12 +146,12 @@ build_dz_kde_block <- function(ages_df,
     }
     seq(q[1], q[2], length.out = n)
   }
-  
+
   # Helper: bandwidth selection
   default_bandwidth <- function(x, method = "SJ", multiplier = 1.0) {
     x <- x[is.finite(x)]
     if (length(x) < 2) return(NA_real_)
-    
+
     bw <- tryCatch({
       if (method == "SJ") {
         stats::bw.SJ(x, method = "ste")
@@ -146,93 +159,94 @@ build_dz_kde_block <- function(ages_df,
         stats::bw.nrd0(x)
       }
     }, error = function(e) NA_real_)
-    
+
     if (!is.finite(bw) || bw <= 0) {
       iqr <- stats::IQR(x, na.rm = TRUE)
       bw <- if (is.finite(iqr) && iqr > 0) iqr / 1.34 else sd(x, na.rm = TRUE)
       if (!is.finite(bw) || bw <= 0) bw <- 1
     }
-    
+
     multiplier * bw
   }
-  
+
   # Helper: discretize KDE
   discretize_kde <- function(x, evalpoints, bw = NULL, bw_method = "SJ", bw_multiplier = 1.0) {
     x <- x[is.finite(x)]
     if (length(x) < 2) {
       return(rep(0, length(evalpoints)))
     }
-    
+
     if (is.null(bw) || !is.finite(bw) || bw <= 0) {
       bw <- default_bandwidth(x, method = bw_method, multiplier = bw_multiplier)
     }
-    
-    dens <- stats::density(x, bw = bw, 
-                          from = min(evalpoints), 
+
+    dens <- stats::density(x, bw = bw,
+                          from = min(evalpoints),
                           to = max(evalpoints),
-                          n = length(evalpoints), 
+                          n = length(evalpoints),
                           kernel = "gaussian")
     dens$y
   }
-  
+
   # Build evaluation grids (one per feature)
   grids <- list()
-  for (var in age_vars) {
-    all_vals <- ages_df[[var]]
+  for (var in vars) {
+    all_vals <- data_df[[var]]
     grids[[var]] <- get_evalpoints(all_vals, n = n_points, probs = probs)
   }
-  
-  # Build DZ matrix
-  DZ_mat <- matrix(0, nrow = N, ncol = F * n_points)
+
+  # Build data matrix
+  data_mat <- matrix(0, nrow = N, ncol = F * n_points)
   colnames_vec <- character(F * n_points)
-  
+
   col_idx <- 1
-  for (f in seq_along(age_vars)) {
-    var <- age_vars[f]
+  for (f in seq_along(vars)) {
+    var <- vars[f]
     grid <- grids[[var]]
-    
+
     # Compute bandwidth on all data (for consistency)
-    all_vals <- ages_df[[var]]
+    all_vals <- data_df[[var]]
     global_bw <- default_bandwidth(all_vals, method = bw_method, multiplier = bw_multiplier)
-    
+
     # Discretize each sample
     for (i in seq_along(samples)) {
       samp <- samples[i]
-      vals <- ages_df[[var]][ages_df$sample == samp]
-      
-      y <- discretize_kde(vals, grid, bw = global_bw, 
-                         bw_method = bw_method, 
+      vals <- data_df[[var]][data_df$sample == samp]
+
+      y <- discretize_kde(vals, grid, bw = global_bw,
+                         bw_method = bw_method,
                          bw_multiplier = bw_multiplier)
-      
+
       y[!is.finite(y)] <- 0
-      
+
       # Normalize to unit area (trapezoidal rule)
       dx <- diff(grid)
       area <- sum((y[-1] + y[-length(y)]) * 0.5 * dx)
       if (is.finite(area) && area > 0) {
         y <- y / area
       }
-      
-      DZ_mat[i, col_idx:(col_idx + n_points - 1)] <- y
+
+      data_mat[i, col_idx:(col_idx + n_points - 1)] <- y
     }
-    
+
     # Column names
     colnames_vec[col_idx:(col_idx + n_points - 1)] <- paste0(var, "_", 1:n_points)
     col_idx <- col_idx + n_points
   }
-  
-  rownames(DZ_mat) <- samples
-  colnames(DZ_mat) <- colnames_vec
-  
+
+  rownames(data_mat) <- samples
+  colnames(data_mat) <- colnames_vec
+
   # Return
   list(
-    DZ_mat = DZ_mat,
+    data_mat = data_mat,
     samples = samples,
-    age_vars = age_vars,
+    vars = vars,
     grids = grids,
     n_points = n_points,
     bw_method = bw_method,
-    bw_multiplier = bw_multiplier
+    bw_multiplier = bw_multiplier,
+    data_type = "continuous"
   )
 }
 
@@ -594,26 +608,6 @@ build_compositional_block <- function(comp_df,
   )
 }
 
-#' Deprecated: Build Bulk Petrology Block
-#'
-#' This function is deprecated. Please use:
-#' - `build_point_counting_block()` for discrete count data
-#' - `build_compositional_block()` for data already in compositional form
-#'
-#' @param ... Arguments passed to build_point_counting_block()
-#'
-#' @return Same as build_point_counting_block()
-#' @export
-build_bp_block <- function(...) {
-  .Deprecated("build_point_counting_block",
-              msg = paste(
-                "build_bp_block() is deprecated.",
-                "Use build_point_counting_block() for count data",
-                "or build_compositional_block() for compositional data."
-              ))
-  build_point_counting_block(...)
-}
-
 #' Prepare Multiple Data Blocks for Unmixing
 #'
 #' Convenience function to prepare multiple data blocks at once.
@@ -724,46 +718,7 @@ prepare_data_blocks <- function(kde_raw = NULL,
                                 n_points_kde = 129,
                                 apply_clr_point_counting = FALSE,
                                 apply_clr_compositional = FALSE,
-                                verbose = TRUE,
-                                # Deprecated parameters for backward compatibility
-                                dz_raw = NULL,
-                                bp_raw = NULL,
-                                hm_raw = NULL,
-                                dz_vars = NULL,
-                                bp_vars = NULL,
-                                hm_vars = NULL,
-                                n_points_dz = NULL,
-                                apply_clr_bp = NULL,
-                                apply_clr_hm = NULL) {
-
-  # Handle deprecated parameters
-  if (!is.null(dz_raw)) {
-    warning("Parameter 'dz_raw' is deprecated. Use 'kde_raw' instead.")
-    kde_raw <- dz_raw
-  }
-  if (!is.null(dz_vars)) {
-    warning("Parameter 'dz_vars' is deprecated. Use 'kde_vars' instead.")
-    kde_vars <- dz_vars
-  }
-  if (!is.null(n_points_dz)) {
-    warning("Parameter 'n_points_dz' is deprecated. Use 'n_points_kde' instead.")
-    n_points_kde <- n_points_dz
-  }
-  if (!is.null(bp_raw) && is.null(point_counting_raw)) {
-    warning("Parameter 'bp_raw' is deprecated. Use 'point_counting_raw' or 'compositional_raw' as appropriate.")
-    point_counting_raw <- bp_raw
-  }
-  if (!is.null(bp_vars)) {
-    warning("Parameter 'bp_vars' is deprecated. Use 'point_counting_vars' or 'compositional_vars' as appropriate.")
-    point_counting_vars <- bp_vars
-  }
-  if (!is.null(apply_clr_bp)) {
-    warning("Parameter 'apply_clr_bp' is deprecated. Use 'apply_clr_point_counting' or 'apply_clr_compositional' as appropriate.")
-    apply_clr_point_counting <- apply_clr_bp
-  }
-  if (!is.null(hm_raw)) {
-    warning("Parameter 'hm_raw' is deprecated. Consider using 'point_counting_raw' or 'compositional_raw' with appropriate naming.")
-  }
+                                verbose = TRUE) {
 
   data_list <- list()
   data_types <- character()
@@ -788,15 +743,15 @@ prepare_data_blocks <- function(kde_raw = NULL,
     # Check if single data.frame or list of data.frames
     if (is.data.frame(kde_raw)) {
       # Single block
-      if (verbose) message("Processing KDE data (e.g., detrital zircon ages)...")
+      if (verbose) message("Processing KDE data...")
 
-      kde_block <- build_dz_kde_block(
-        ages_df = kde_raw,
-        age_vars = kde_vars,
+      kde_block <- build_kde_block(
+        data_df = kde_raw,
+        vars = kde_vars,
         n_points = n_points_kde
       )
 
-      data_list[["KDE"]] <- kde_block$DZ_mat
+      data_list[["KDE"]] <- kde_block$data_mat
       data_types["KDE"] <- "continuous"
       metadata_list[["KDE"]] <- kde_block
 
@@ -809,13 +764,13 @@ prepare_data_blocks <- function(kde_raw = NULL,
       for (block_name in names(kde_raw)) {
         if (verbose) message(sprintf("Processing KDE data: %s...", block_name))
 
-        kde_block <- build_dz_kde_block(
-          ages_df = kde_raw[[block_name]],
-          age_vars = get_param(kde_vars, block_name, NULL),
+        kde_block <- build_kde_block(
+          data_df = kde_raw[[block_name]],
+          vars = get_param(kde_vars, block_name, NULL),
           n_points = get_param(n_points_kde, block_name, 129)
         )
 
-        data_list[[block_name]] <- kde_block$DZ_mat
+        data_list[[block_name]] <- kde_block$data_mat
         data_types[block_name] <- "continuous"
         metadata_list[[block_name]] <- kde_block
       }
