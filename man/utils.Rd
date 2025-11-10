@@ -2,8 +2,8 @@
 % Please edit documentation in R/utils.R
 \name{utils}
 \alias{utils}
-\title{Utility Functions for Provenance Unmixing}
+\title{Utility Functions for Source Unmixing}
 \description{
-Utility Functions for Provenance Unmixing
+Utility Functions for Source Unmixing
 }
 \keyword{internal}

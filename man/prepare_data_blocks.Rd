@@ -5,44 +5,51 @@
 \title{Prepare Multiple Data Blocks for Unmixing}
 \usage{
 prepare_data_blocks(
-  dz_raw = NULL,
-  bp_raw = NULL,
-  hm_raw = NULL,
+  kde_raw = NULL,
+  point_counting_raw = NULL,
+  compositional_raw = NULL,
   other_raw = NULL,
-  dz_vars = NULL,
-  bp_vars = NULL,
-  hm_vars = NULL,
-  n_points_dz = 129,
-  apply_clr_bp = FALSE,
-  apply_clr_hm = FALSE,
+  kde_vars = NULL,
+  point_counting_vars = NULL,
+  compositional_vars = NULL,
+  n_points_kde = 129,
+  apply_clr_point_counting = FALSE,
+  apply_clr_compositional = FALSE,
   verbose = TRUE
 )
 }
 \arguments{
-\item{dz_raw}{Data frame with detrital zircon ages (optional)}
+\item{kde_raw}{Data frame or named list of data frames with KDE data
+(e.g., detrital zircon ages). Optional.}
 
-\item{bp_raw}{Data frame with bulk petrology counts (optional)}
+\item{point_counting_raw}{Data frame or named list of data frames with
+point counting data (discrete counts). Optional.}
 
-\item{hm_raw}{Data frame with heavy mineral counts (optional)}
+\item{compositional_raw}{Data frame or named list of data frames with
+compositional data (already proportions). Optional.}
 
 \item{other_raw}{Named list of additional data frames (optional)}
 
-\item{dz_vars}{Character vector of age variables for DZ}
+\item{kde_vars}{Character vector or named list of character vectors for KDE variables.
+If a single vector, applies to all KDE blocks. If named list, must match names in kde_raw.}
 
-\item{bp_vars}{Character vector of mineral columns for BP}
+\item{point_counting_vars}{Character vector or named list for point counting variables.}
 
-\item{hm_vars}{Character vector of mineral columns for HM}
+\item{compositional_vars}{Character vector or named list for compositional variables.}
 
-\item{n_points_dz}{Number of bins for DZ discretization (default: 129)}
+\item{n_points_kde}{Number of bins for KDE discretization (default: 129).
+Can be a single value or named list matching kde_raw.}
 
-\item{apply_clr_bp}{Apply CLR to BP? (default: FALSE, will be done in unmixing)}
+\item{apply_clr_point_counting}{Apply CLR to point counting? (default: FALSE).
+Can be single logical or named list.}
 
-\item{apply_clr_hm}{Apply CLR to HM? (default: FALSE)}
+\item{apply_clr_compositional}{Apply CLR to compositional? (default: FALSE).
+Can be single logical or named list.}
 
 \item{verbose}{Print progress messages? (default: TRUE)}
 }
 \value{
-A list ready for provenance_unmix():
+A list ready for unmix():
   \item{data_list}{Named list of data matrices}
   \item{data_types}{Named character vector of data types}
   \item{samples}{Common sample names (aligned)}
@@ -50,21 +57,71 @@ A list ready for provenance_unmix():
 }
 \description{
 Convenience function to prepare multiple data blocks at once.
-Combines build_dz_kde_block() and build_bp_block() with alignment checking.
+Combines KDE, point counting, and compositional data preparation with
+alignment checking. Supports multiple blocks of the same type via named lists.
 }
 \examples{
 \dontrun{
-# Prepare all data at once
+# Example 1: Single block per type
 prepared <- prepare_data_blocks(
-  dz_raw = my_dz_ages,
-  bp_raw = my_bp_counts,
-  dz_vars = c("age_concordia", "ti_temp"),
-  bp_vars = c("Qtz", "Fsp", "Lith", "Musc"),
-  n_points_dz = 129
+  kde_raw = my_dz_ages,
+  point_counting_raw = my_mineral_counts,
+  kde_vars = c("age_concordia", "ti_temp"),
+  point_counting_vars = c("Qtz", "Fsp", "Lith", "Musc"),
+  n_points_kde = 129
+)
+
+# Example 2: Multiple KDE blocks
+prepared <- prepare_data_blocks(
+  kde_raw = list(
+    Zircon = zircon_ages,
+    Apatite = apatite_ages
+  ),
+  kde_vars = list(
+    Zircon = c("age_concordia", "ti_temp"),
+    Apatite = c("age_u_pb", "age_fission_track")
+  )
+)
+
+# Example 3: Multiple compositional blocks
+prepared <- prepare_data_blocks(
+  compositional_raw = list(
+    MajorOxides = major_oxides,
+    TraceElements = trace_elements,
+    ModalMin = modal_mineralogy
+  ),
+  compositional_vars = list(
+    MajorOxides = c("SiO2", "Al2O3", "FeO", "MgO"),
+    TraceElements = c("Zr", "Y", "Nb", "La", "Ce"),
+    ModalMin = c("Qtz", "Fsp", "Mica", "Amph")
+  ),
+  apply_clr_compositional = TRUE
+)
+
+# Example 4: Mixed - 2 KDE + 3 Compositional
+prepared <- prepare_data_blocks(
+  kde_raw = list(
+    Zircon = zircon_ages,
+    Apatite = apatite_ages
+  ),
+  compositional_raw = list(
+    MajorOxides = major_oxides,
+    TraceElements = trace_elements,
+    ModalMin = modal_mineralogy
+  ),
+  kde_vars = list(
+    Zircon = c("age_concordia"),
+    Apatite = c("age_u_pb")
+  ),
+  compositional_vars = list(
+    MajorOxides = c("SiO2", "Al2O3", "FeO"),
+    TraceElements = c("Zr", "Y", "Nb"),
+    ModalMin = c("Qtz", "Fsp", "Mica")
+  )
 )
 
 # Unmix directly
-result <- provenance_unmix(
+result <- unmix(
   data_list = prepared$data_list,
   data_types = prepared$data_types,
   K = 3

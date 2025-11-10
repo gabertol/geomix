@@ -7,7 +7,7 @@
 plot_mixing_matrix(x, samples = NULL, ...)
 }
 \arguments{
-\item{x}{A provunmix object}
+\item{x}{An unmix_result object}
 
 \item{samples}{Optional vector of sample indices to plot (default: all)}
 

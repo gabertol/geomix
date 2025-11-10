@@ -7,7 +7,7 @@
 plot_sources(x, block = 1, ...)
 }
 \arguments{
-\item{x}{A provunmix object}
+\item{x}{An unmix_result object}
 
 \item{block}{Which data block to plot (default: 1)}
 

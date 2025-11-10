@@ -2,9 +2,9 @@
 % Please edit documentation in R/preprocessing.R
 \name{preprocessing}
 \alias{preprocessing}
-\title{Data Preprocessing Functions for Provenance Analysis}
+\title{Data Preprocessing Functions for Source Analysis}
 \description{
-Functions to prepare raw data for provenance unmixing, including
+Functions to prepare raw data for source unmixing, including
 KDE discretization for detrital zircon ages and compositional data
 preparation for bulk petrology.
 }

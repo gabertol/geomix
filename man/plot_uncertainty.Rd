@@ -7,7 +7,7 @@
 plot_uncertainty(x, samples = NULL, ...)
 }
 \arguments{
-\item{x}{A provunmix_boot object}
+\item{x}{A bootstrap_result object}
 
 \item{samples}{Optional vector of sample indices to plot (default: first 10)}
 

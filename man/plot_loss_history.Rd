@@ -7,7 +7,7 @@
 plot_loss_history(x, log = TRUE, ...)
 }
 \arguments{
-\item{x}{A provunmix object}
+\item{x}{An unmix_result object}
 
 \item{log}{Logical, use log scale for y-axis? (default: TRUE)}
 
