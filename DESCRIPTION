@@ -23,12 +23,13 @@ Imports:
     grDevices,
     dplyr,
     tidyr,
-    rlang
+    rlang,
+    ggplot2,
+    jsonlite
 Suggests:
     testthat (>= 3.0.0),
     knitr,
     rmarkdown,
-    ggplot2,
     dplyr,
     tidyr,
     clue
