@@ -2,20 +2,19 @@
 % Please edit documentation in R/utils.R
 \name{solve_A_joint_fair}
 \alias{solve_A_joint_fair}
-\title{Solve for A Using Multiple Data Blocks}
+\title{Solve for A Using Multiple Data Blocks (Legacy - no weights)}
 \usage{
 solve_A_joint_fair(B_list, X_list)
 }
 \arguments{
-\item{B_list}{List of source signature matrices (one per data block)}
+\item{B_list}{List of source signature matrices}
 
-\item{X_list}{List of data matrices (one per data block)}
+\item{X_list}{List of data matrices}
 }
 \value{
 Matrix A (N x K) with rows normalized to simplex
 }
 \description{
-Jointly solves for mixing matrix A using multiple data blocks
-with fair normalization.
+Solve for A Using Multiple Data Blocks (Legacy - no weights)
 }
 \keyword{internal}

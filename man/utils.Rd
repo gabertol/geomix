@@ -2,8 +2,33 @@
 % Please edit documentation in R/utils.R
 \name{utils}
 \alias{utils}
+\alias{row_simplex}
 \title{Utility Functions for Source Unmixing}
+\usage{
+row_simplex(M, eps = 1e-12)
+}
+\arguments{
+\item{M}{Numeric matrix}
+
+\item{eps}{Small value to avoid division by zero (default: 1e-12)}
+}
+\value{
+Matrix with rows normalized to sum to 1
+}
 \description{
 Utility Functions for Source Unmixing
 }
+\keyword{(simplex}
+\keyword{1}
+\keyword{Normalization}
+\keyword{Normalizes}
+\keyword{Row-wise}
+\keyword{Simplex}
+\keyword{a}
+\keyword{constraint).}
 \keyword{internal}
+\keyword{matrix}
+\keyword{of}
+\keyword{rows}
+\keyword{sum}
+\keyword{to}
