@@ -43,7 +43,7 @@ plot_mixing_matrix <- function(x, samples = NULL, ...) {
   A <- x$A
   
   if (is.null(samples)) {
-    samples <- 1:nrow(A)
+    samples <- seq_len(nrow(A))
   }
   
   A_plot <- A[samples, , drop = FALSE]
@@ -147,7 +147,7 @@ plot_loss_history <- function(x, log = TRUE, ...) {
 plot_uncertainty <- function(x, samples = NULL, ...) {
   
   if (is.null(samples)) {
-    samples <- 1:min(10, nrow(x$A_mean))
+    samples <- seq_len(min(10, nrow(x$A_mean)))
   }
   
   A_orig <- x$fit_original$A[samples, , drop = FALSE]
@@ -159,7 +159,7 @@ plot_uncertainty <- function(x, samples = NULL, ...) {
   
   par(mfrow = c(1, K), mar = c(5, 4, 4, 2))
   
-  for (k in 1:K) {
+  for (k in seq_len(K)) {
     # Error bars
     x_pos <- 1:n_samples
     plot(x_pos, A_orig[, k],

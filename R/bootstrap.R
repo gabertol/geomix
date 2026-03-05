@@ -78,7 +78,7 @@ bootstrap_unmix <- function(data_list,
   # Bootstrap loop
   bootstrap_iter <- function(b) {
     # Resample with replacement
-    idx <- sample(1:N, N, replace = TRUE)
+    idx <- sample(seq_len(N), N, replace = TRUE)
     
     # Create resampled data
     data_boot <- lapply(data_list, function(X) X[idx, , drop = FALSE])
@@ -126,11 +126,11 @@ bootstrap_unmix <- function(data_list,
     parallel::clusterExport(cl, c("data_list", "data_types", "K", "unmix"),
                            envir = environment())
     
-    boot_results <- parallel::parLapply(cl, 1:n_boot, bootstrap_iter)
+    boot_results <- parallel::parLapply(cl, seq_len(n_boot), bootstrap_iter)
     
   } else {
     boot_results <- vector("list", n_boot)
-    for (b in 1:n_boot) {
+    for (b in seq_len(n_boot)) {
       if (verbose && b %% 10 == 0) {
         message(sprintf("Bootstrap iteration %d/%d", b, n_boot))
       }
@@ -221,9 +221,9 @@ summary.bootstrap_result <- function(object, ...) {
   print(object)
   
   cat("\n\nMixing Matrix A with Confidence Intervals (first 3 samples, first 3 sources):\n")
-  for (i in 1:min(3, nrow(object$A_mean))) {
+  for (i in seq_len(min(3, nrow(object$A_mean)))) {
     cat(sprintf("\nSample %s:\n", rownames(object$A_mean)[i]))
-    for (k in 1:min(3, ncol(object$A_mean))) {
+    for (k in seq_len(min(3, ncol(object$A_mean)))) {
       cat(sprintf("  Source%d: %.3f (95%% CI: %.3f - %.3f, SE: %.3f)\n",
                   k,
                   object$fit_original$A[i, k],
