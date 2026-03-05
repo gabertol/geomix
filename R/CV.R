@@ -41,7 +41,7 @@
 #' **Stage 2: Estimate A for partial samples**
 #' - For each sample with partial coverage, use solve_A_given_B()
 #'   on available blocks
-#' - Combine estimates using inverse-variance weighting or averaging
+#' - Combine estimates using simple averaging
 #'
 #' This approach maximizes sample utilization: instead of discarding
 #' samples missing one proxy, their mixing proportions are estimated
@@ -121,15 +121,15 @@ unmix_cv <- function(data_list,
 
   # Classify samples
   complete_samples <- all_samples[n_blocks_per_sample == n_blocks]
-  partial_samples <- all_samples[n_blocks_per_sample >= min_blocks_for_B &
-                                   n_blocks_per_sample < n_blocks]
-  sparse_samples <- all_samples[n_blocks_per_sample < min_blocks_for_B]
+  partial_samples  <- all_samples[n_blocks_per_sample >= min_blocks_for_B &
+                                    n_blocks_per_sample < n_blocks]
+  sparse_samples   <- all_samples[n_blocks_per_sample < min_blocks_for_B]
 
   # Samples to use for B fitting
   samples_for_B <- all_samples[n_blocks_per_sample >= min_blocks_for_B]
 
   if (verbose) {
-    cat(sprintf("\nSample coverage:\n"))
+    cat("\nSample coverage:\n")
     cat(sprintf("  Complete (%d blocks): %d samples\n", n_blocks, length(complete_samples)))
     cat(sprintf("  Partial (>=%d blocks): %d samples\n", min_blocks_for_B, length(partial_samples)))
     cat(sprintf("  Sparse (<%d blocks): %d samples\n", min_blocks_for_B, length(sparse_samples)))
@@ -149,37 +149,18 @@ unmix_cv <- function(data_list,
 
   if (verbose) cat("\n--- Stage 1: Fitting B matrices ---\n")
 
-  # Find common samples across blocks that meet threshold
-  # Use the intersection of samples that have at least min_blocks_for_B
-
-  # For B fitting, we need to use samples that are in ALL selected blocks
-
-  # But we want to maximize coverage, so we iterate
-
-  # Strategy: use samples present in at least 2 blocks together
-  # Build data_list for fitting using available samples per block
-
-  # Simpler approach: find largest subset with complete coverage
-  # among samples_for_B
-
-  # Get samples present in all blocks (complete samples)
+  # Prefer complete samples for B fitting; fall back to maximum-coverage samples
   if (length(complete_samples) >= K) {
-    # Ideal case: use complete samples
     samples_fit <- complete_samples
   } else {
-    # Fallback: find blocks with most overlap and use those
-    # Use samples with maximum coverage
     max_coverage <- max(n_blocks_per_sample)
-    samples_fit <- all_samples[n_blocks_per_sample == max_coverage]
-
+    samples_fit  <- all_samples[n_blocks_per_sample == max_coverage]
     if (length(samples_fit) < K) {
-      # Last resort: use all samples that meet minimum
       samples_fit <- samples_for_B
     }
   }
 
   # Determine which blocks to use for fitting
-  # (those that have all samples_fit)
   blocks_for_fit <- block_names[sapply(block_names, function(b) {
     all(samples_fit %in% rownames(data_list[[b]]))
   })]
@@ -226,7 +207,7 @@ unmix_cv <- function(data_list,
 
   # For samples used in fitting: use original A
   A_full[samples_fit, ] <- fit_complete$A
-  A_type[samples_fit] <- "complete"
+  A_type[samples_fit]   <- "complete"
 
   # For remaining samples: estimate via CV
   remaining_samples <- setdiff(all_samples, samples_fit)
@@ -237,7 +218,6 @@ unmix_cv <- function(data_list,
   }
 
   # Get B matrices for all blocks (including those not in fit)
-  # For blocks not in fit, we need to estimate B
   B_list_full <- list()
 
   for (b in block_names) {
@@ -253,7 +233,7 @@ unmix_cv <- function(data_list,
         rownames(B_list_full[[b]]) <- colnames(fit_complete$A)
       } else {
         if (verbose) {
-          cat(sprintf("  Warning: Cannot estimate B for block %s (too few overlapping samples)\n", b))
+          warning(sprintf("Cannot estimate B for block '%s': too few overlapping samples.", b))
         }
         B_list_full[[b]] <- NULL
       }
@@ -262,7 +242,6 @@ unmix_cv <- function(data_list,
 
   # Estimate A for remaining samples
   for (samp in remaining_samples) {
-    # Get blocks available for this sample
     blocks_avail <- block_names[coverage[samp, ]]
     blocks_avail <- blocks_avail[!sapply(B_list_full[blocks_avail], is.null)]
 
@@ -272,55 +251,48 @@ unmix_cv <- function(data_list,
     }
 
     # Estimate A from each available block
-    A_estimates <- list()
-
-    for (b in blocks_avail) {
+    A_estimates <- lapply(blocks_avail, function(b) {
       X_samp <- data_list[[b]][samp, , drop = FALSE]
-      B_block <- B_list_full[[b]]
+      as.vector(solve_A_given_B(X_samp, B_list_full[[b]], method = method, verbose = FALSE))
+    })
 
-      A_est <- solve_A_given_B(X_samp, B_block, method = method, verbose = FALSE)
-      A_estimates[[b]] <- as.vector(A_est)
-    }
-
-    # Combine estimates (simple average for now)
-    # TODO: could use inverse-variance weighting based on reconstruction error
+    # Combine estimates via simple average and re-normalize
     A_combined <- Reduce(`+`, A_estimates) / length(A_estimates)
-    A_combined <- A_combined / sum(A_combined)  # Re-normalize
+    A_combined  <- A_combined / sum(A_combined)
 
     A_full[samp, ] <- A_combined
-    A_type[samp] <- "partial"
+    A_type[samp]   <- "partial"
   }
 
   # ==========================================================================
   # 4. BUILD RESULT
   # ==========================================================================
 
-  # Sample coverage data frame
   coverage_df <- as.data.frame(coverage)
-  coverage_df$sample <- rownames(coverage_df)
+  coverage_df$sample   <- rownames(coverage_df)
   coverage_df$n_blocks <- n_blocks_per_sample
-  coverage_df$A_type <- A_type
+  coverage_df$A_type   <- A_type
   coverage_df <- coverage_df[, c("sample", "n_blocks", "A_type", block_names)]
 
   result <- list(
-    A = A_full,
-    A_type = A_type,
-    B_list = B_list_full,
+    A              = A_full,
+    A_type         = A_type,
+    B_list         = B_list_full,
     sample_coverage = coverage_df,
-    fit_complete = fit_complete,
-    n_complete = sum(A_type == "complete"),
-    n_partial = sum(A_type == "partial"),
-    n_no_data = sum(A_type == "no_data"),
-    K = K,
-    block_names = block_names,
-    call = match.call()
+    fit_complete   = fit_complete,
+    n_complete     = sum(A_type == "complete"),
+    n_partial      = sum(A_type == "partial"),
+    n_no_data      = sum(A_type == "no_data"),
+    K              = K,
+    block_names    = block_names,
+    call           = match.call()
   )
 
   class(result) <- "unmix_cv_result"
 
   if (verbose) {
     cat("\n=== Summary ===\n")
-    cat(sprintf("Total samples with A estimates: %d\n", sum(!is.na(A_full[,1]))))
+    cat(sprintf("Total samples with A estimates: %d\n", sum(!is.na(A_full[, 1]))))
     cat(sprintf("  From complete fit: %d\n", result$n_complete))
     cat(sprintf("  From CV (partial): %d\n", result$n_partial))
     if (result$n_no_data > 0) {
@@ -333,6 +305,9 @@ unmix_cv <- function(data_list,
 
 
 #' Print Method for unmix_cv_result
+#'
+#' @param x An unmix_cv_result object.
+#' @param ... Additional arguments (unused).
 #' @export
 print.unmix_cv_result <- function(x, ...) {
   cat("Cross-Validation Unmixing Results\n")
@@ -351,6 +326,9 @@ print.unmix_cv_result <- function(x, ...) {
 
 
 #' Summary Method for unmix_cv_result
+#'
+#' @param object An unmix_cv_result object.
+#' @param ... Additional arguments (unused).
 #' @export
 summary.unmix_cv_result <- function(object, ...) {
   print(object)
@@ -360,9 +338,3 @@ summary.unmix_cv_result <- function(object, ...) {
   print(head(object$A))
   invisible(object)
 }
-
-
-
-
-
-

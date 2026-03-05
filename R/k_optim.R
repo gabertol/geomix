@@ -4,7 +4,7 @@
 #' summarizing model fit statistics (loss, AIC, BIC). Intended for both
 #' interactive exploration (e.g., in Shiny) and scripted benchmarking.
 #'
-#' @param data_list Named list of matrices (samples × features) passed to `unmix()`.
+#' @param data_list Named list of matrices (samples x features) passed to `unmix()`.
 #' @param data_types Named character vector indicating type of each dataset:
 #'   `"continuous"`, `"compositional"`, or `"clr"`.
 #' @param K_seq Integer vector of K values to test.
@@ -14,7 +14,7 @@
 #' @param seeds Optional integer vector of length = `reps`. Defaults to `1:reps`.
 #' @param verbose Logical; print progress messages.
 #'
-#' @return A tibble with one row per run containing:
+#' @return A data frame with one row per run containing:
 #'   K, replicate number, seed, loss, iterations, convergence flag,
 #'   number of samples, and dimensions of each block (as JSON).
 #' @export
@@ -32,19 +32,21 @@ k_optimize <- function(data_list, data_types, K_seq, reps = 8,
       fit <- try(unmix(data_list, data_types, K = K, max_iter = max_iter, tol = tol, verbose = FALSE),
                  silent = TRUE)
       if (inherits(fit, "try-error") || !is.list(fit)) {
-        return(tibble::tibble(
+        return(data.frame(
           K = K, rep = r, seed = seeds[r],
           loss = NA_real_, iters = NA_integer_, converged = FALSE,
-          n_samples = dims$n_samples, B_dims_json = dims$B_dims_json
+          n_samples = dims$n_samples, B_dims_json = dims$B_dims_json,
+          stringsAsFactors = FALSE
         ))
       }
-      tibble::tibble(
+      data.frame(
         K = K, rep = r, seed = seeds[r],
         loss = as.numeric(fit$loss),
         iters = length(fit$loss_history),
         converged = isTRUE(fit$converged),
         n_samples = dims$n_samples,
-        B_dims_json = dims$B_dims_json
+        B_dims_json = dims$B_dims_json,
+        stringsAsFactors = FALSE
       )
     }) |>
       dplyr::bind_rows()
@@ -65,7 +67,7 @@ k_optimize <- function(data_list, data_types, K_seq, reps = 8,
 #' @param data_list Optional; needed for AIC/BIC computation.
 #'
 #' @return A list with:
-#' \item{summary}{A tibble summarized by K.}
+#' \item{summary}{A data frame summarized by K.}
 #' \item{k_best}{The optimal K according to the chosen metric.}
 #' @export
 k_summary <- function(kgrid, metric = c("loss", "aic", "bic"), data_list = NULL) {
@@ -73,11 +75,11 @@ k_summary <- function(kgrid, metric = c("loss", "aic", "bic"), data_list = NULL)
   if (nrow(kgrid) == 0) stop("Empty kgrid input.")
 
   sum_loss <- kgrid |>
-    dplyr::group_by(K) |>
+    dplyr::group_by(.data$K) |>
     dplyr::summarise(
-      mean_loss = mean(loss, na.rm = TRUE),
-      sd_loss   = stats::sd(loss, na.rm = TRUE),
-      n_ok      = sum(is.finite(loss)),
+      mean_loss = mean(.data$loss, na.rm = TRUE),
+      sd_loss   = stats::sd(.data$loss, na.rm = TRUE),
+      n_ok      = sum(is.finite(.data$loss)),
       .groups = "drop"
     )
 
@@ -98,7 +100,7 @@ k_summary <- function(kgrid, metric = c("loss", "aic", "bic"), data_list = NULL)
   list(summary = sum_loss, k_best = k_best)
 }
 
-#' Detect an "elbow" in the K–loss curve
+#' Detect an "elbow" in the K-loss curve
 #'
 #' Simple geometric heuristic (distance to diagonal method).
 #'
@@ -117,26 +119,32 @@ k_find_elbow <- function(x, y) {
 
 #' Plot the K-curve using ggplot2
 #'
-#' Creates a base ggplot object (optionally shaded by ±1 SD) suitable for
+#' Creates a base ggplot object (optionally shaded by +/-1 SD) suitable for
 #' wrapping with `plotly::ggplotly()` in Shiny apps.
 #'
-#' @param ksum Summary tibble returned by [k_summary()].
+#' @param ksum Summary data frame returned by [k_summary()].
 #' @param show_sd Logical; include shaded standard deviation area.
 #' @param elbow_k Optional K value to highlight with a dashed line.
 #' @return A `ggplot` object.
+#' @importFrom ggplot2 ggplot aes geom_line geom_point labs geom_ribbon geom_vline
 #' @export
 k_plot <- function(ksum, show_sd = TRUE, elbow_k = NULL) {
   stopifnot(all(c("K", "mean_loss", "sd_loss") %in% names(ksum)))
-  library(ggplot2)
-  p <- ggplot(ksum, aes(K, mean_loss)) +
-    geom_line() + geom_point() +
-    labs(x = "K", y = "Mean loss", title = "K optimization curve")
+  p <- ggplot2::ggplot(ksum, ggplot2::aes(x = .data$K, y = .data$mean_loss)) +
+    ggplot2::geom_line() +
+    ggplot2::geom_point() +
+    ggplot2::labs(x = "K", y = "Mean loss", title = "K optimization curve")
   if (show_sd) {
-    p <- p + geom_ribbon(aes(ymin = pmax(mean_loss - sd_loss, 0),
-                             ymax = mean_loss + sd_loss), alpha = 0.2)
+    p <- p + ggplot2::geom_ribbon(
+      ggplot2::aes(
+        ymin = pmax(.data$mean_loss - .data$sd_loss, 0),
+        ymax = .data$mean_loss + .data$sd_loss
+      ),
+      alpha = 0.2
+    )
   }
   if (!is.null(elbow_k)) {
-    p <- p + geom_vline(xintercept = elbow_k, linetype = 2)
+    p <- p + ggplot2::geom_vline(xintercept = elbow_k, linetype = 2)
   }
   p
 }

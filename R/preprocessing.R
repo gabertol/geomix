@@ -861,21 +861,6 @@ prepare_data_blocks <- function(kde_raw = NULL,
     }
   }
 
-  # Process HM (deprecated, map to point counting)
-  if (!is.null(hm_raw)) {
-    if (verbose) message("Processing heavy mineral data (using point counting)...")
-
-    hm_block <- build_point_counting_block(
-      counts_df = hm_raw,
-      mineral_cols = hm_vars,
-      apply_clr = ifelse(is.null(apply_clr_hm), FALSE, apply_clr_hm)
-    )
-
-    data_list[["HM"]] <- hm_block$data_mat
-    data_types["HM"] <- hm_block$data_type
-    metadata_list[["HM"]] <- hm_block
-  }
-  
   # Process other blocks
   if (!is.null(other_raw) && length(other_raw) > 0) {
     for (name in names(other_raw)) {
