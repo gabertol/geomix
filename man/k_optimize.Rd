@@ -16,7 +16,7 @@ k_optimize(
 )
 }
 \arguments{
-\item{data_list}{Named list of matrices (samples × features) passed to `unmix()`.}
+\item{data_list}{Named list of matrices (samples x features) passed to `unmix()`.}
 
 \item{data_types}{Named character vector indicating type of each dataset:
 `"continuous"`, `"compositional"`, or `"clr"`.}
@@ -34,7 +34,7 @@ k_optimize(
 \item{verbose}{Logical; print progress messages.}
 }
 \value{
-A tibble with one row per run containing:
+A data frame with one row per run containing:
   K, replicate number, seed, loss, iterations, convergence flag,
   number of samples, and dimensions of each block (as JSON).
 }

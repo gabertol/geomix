@@ -7,7 +7,7 @@
 k_plot(ksum, show_sd = TRUE, elbow_k = NULL)
 }
 \arguments{
-\item{ksum}{Summary tibble returned by [k_summary()].}
+\item{ksum}{Summary data frame returned by [k_summary()].}
 
 \item{show_sd}{Logical; include shaded standard deviation area.}
 
@@ -17,6 +17,6 @@ k_plot(ksum, show_sd = TRUE, elbow_k = NULL)
 A `ggplot` object.
 }
 \description{
-Creates a base ggplot object (optionally shaded by ±1 SD) suitable for
+Creates a base ggplot object (optionally shaded by +/-1 SD) suitable for
 wrapping with `plotly::ggplotly()` in Shiny apps.
 }

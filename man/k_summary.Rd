@@ -15,7 +15,7 @@ k_summary(kgrid, metric = c("loss", "aic", "bic"), data_list = NULL)
 }
 \value{
 A list with:
-\item{summary}{A tibble summarized by K.}
+\item{summary}{A data frame summarized by K.}
 \item{k_best}{The optimal K according to the chosen metric.}
 }
 \description{

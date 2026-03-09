@@ -2,7 +2,7 @@
 % Please edit documentation in R/k_optim.R
 \name{k_find_elbow}
 \alias{k_find_elbow}
-\title{Detect an "elbow" in the K–loss curve}
+\title{Detect an "elbow" in the K-loss curve}
 \usage{
 k_find_elbow(x, y)
 }

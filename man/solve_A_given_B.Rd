@@ -5,8 +5,6 @@
 \title{Solve for A Given Fixed B (Local Mixing Proportions)}
 \usage{
 solve_A_given_B(X, B, method = c("nnls", "ols"), verbose = FALSE)
-
-solve_A_given_B(X, B, method = c("nnls", "ols"), verbose = FALSE)
 }
 \arguments{
 \item{X}{Matrix (N x F) of observed data for one block.
@@ -22,36 +20,14 @@ Typically obtained from `fit$B_list$BlockName`.}
 \value{
 Matrix A_local (N x K) with mixing proportions.
   Rows sum to 1 (simplex constraint).
-
-Matrix A_local (N x K) with mixing proportions.
-  Rows sum to 1 (simplex constraint).
 }
 \description{
-Computes sample-wise mixing proportions (A) for a single data block
-using fixed source signatures (B) from a previous unmixing fit.
-This allows analyzing how mixing proportions vary across different
-data types (e.g., DZ ages vs heavy minerals) while maintaining
-consistent source definitions.
-
 Computes sample-wise mixing proportions (A) for a single data block
 using fixed source signatures (B) from a previous unmixing fit.
 This allows analyzing how mixing proportions vary across different
 data types while maintaining consistent source definitions.
 }
 \details{
-Given the linear mixing model X ≈ A %*% B, this function solves
-for A row-by-row using non-negative least squares (NNLS):
-
-  x_i ≈ t(B) %*% a_i
-
-Each row a_i is then normalized to sum to 1.
-
-**Use case**: After running `unmix()` with multiple blocks to get
-a global A and block-specific B matrices, use this function to
-compute "local" mixing proportions for each block individually.
-Comparing A_global vs A_local reveals which samples have consistent
-mixing across proxies vs which show proxy-dependent variation.
-
 Given the linear mixing model X ≈ A %*% B, this function solves
 for A row-by-row using non-negative least squares (NNLS):
 
@@ -84,7 +60,5 @@ mae_DZ <- mean(abs(fit$A - A_local_DZ))
 
 }
 \seealso{
-\code{\link{unmix}}, \code{\link{compute_A_local_all}}
-
 \code{\link{compute_A_local}}, \code{\link{unmix_cv}}
 }

@@ -9,13 +9,13 @@ compare_A_global_local(fit, A_local_list = NULL)
 \arguments{
 \item{fit}{An unmix_result object.}
 
-\item{A_local_list}{Output from \code{\link{compute_A_local_all}}.
+\item{A_local_list}{Output from \code{\link{compute_A_local}}.
 If NULL, will be computed internally.}
 }
 \value{
 A list with:
-  \item{by_block}{Tibble with MAE per block}
-  \item{by_sample}{Tibble with MAE per sample per block}
+  \item{by_block}{Data frame with MAE per block}
+  \item{by_sample}{Data frame with MAE per sample per block}
 }
 \description{
 Computes per-block and per-sample MAE between global and local
