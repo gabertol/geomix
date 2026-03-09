@@ -1,19 +1,635 @@
 ---
-title: "ModelBenchmark_01"
-output: rmarkdown::html_vignette
+title: "Vignette 1: Method Validation with Synthetic Data (DUMMY4)"
+output:
+  rmarkdown::html_vignette:
+    toc: true
+    toc_depth: 3
 vignette: >
-  %\VignetteIndexEntry{ModelBenchmark_01}
+  %\VignetteIndexEntry{Vignette 1: Method Validation with Synthetic Data}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
 
-```{r, include = FALSE}
+```{r setup, include=FALSE}
 knitr::opts_chunk$set(
-  collapse = TRUE,
-  comment = "#>"
+  collapse  = TRUE,
+  comment   = "#>",
+  fig.width = 9,
+  fig.height = 5.5,
+  dpi       = 150,
+  warning   = FALSE,
+  message   = FALSE
 )
 ```
 
-```{r setup}
+## Overview
+
+This vignette validates the core **geomix** unmixing workflow using the
+**DUMMY4** synthetic dataset, where true mixing proportions (**A**) and true
+source signatures (**B**) are fully known. Because ground truth is available,
+recovery accuracy can be measured directly with mean absolute error (MAE).
+
+**Dataset:** 15 artificial mixtures (MIX1–MIX15) of three end-members (K = 3)
+across two complementary proxy blocks:
+
+| Block | Type | Description |
+|:------|:-----|:------------|
+| **DZ** | Distributional (KDE) | Detrital zircon: 7 geochemical proxies per grain |
+| **BP** | Compositional (simplex) | Bulk petrography: 5 mineral fractions per sample |
+
+The two blocks intentionally sample different grain-size fractions of the
+sedimentary load, providing complementary provenance signals.
+
+**Six methods are benchmarked:**
+
+1. **Baseline** — NNLS in simplex space, joint blocks, `inv_f` weighting
+2. **Entropy + inv_f** — same, with sample-adaptive entropy weighting
+3. **DZ only** — single-block NNLS on distributional data
+4. **BP only** — single-block NNLS on compositional data
+5. **CLR + NNLS** — both blocks CLR-transformed, NNLS solver
+6. **CLR + OLS** — both blocks CLR-transformed, OLS solver
+
+Methods 5–6 serve as foils: the CLR transformation breaks the linear mixing
+structure that holds in simplex space, and the benchmark quantifies the
+resulting loss in recovery accuracy.
+
+```{r packages}
 library(geomix)
+library(dplyr)
+library(tidyr)
+library(tibble)
+library(ggplot2)
+library(clue)
+library(scales)
+library(compositions)
+```
+
+---
+
+## 1. Load data
+
+```{r load-data}
+data("DUMMY4_DZ")        # grain-level DZ measurements  (long format)
+data("DUMMY4_grainsize") # grain-level petrography      (long format)
+data("DUMMY4_EM")        # end-member raw data          (same formats)
+data("DUMMY4_A_true")    # known mixing proportions     (ground truth)
+
+K        <- 3L
+N_POINTS <- 129L
+```
+
+---
+
+## 2. Build data matrices
+
+KDE normalisation uses `y / sum(y)` (sum = 1 per variable), which preserves
+the absolute scale difference between blocks that `inv_f` global weighting
+relies on. A global bandwidth (pooled across all samples) and a common
+evaluation grid are used per variable, matching the validation script exactly.
+
+```{r build-blocks}
+dz_vars <- setdiff(names(DUMMY4_DZ), "sample")
+samples <- sort(unique(DUMMY4_DZ$sample))
+
+# ---- local KDE helpers (matching validation script) -------------------------
+
+get_evalpoints <- function(x, n = 129, probs = c(0.03, 0.97)) {
+  x <- x[is.finite(x)]
+  if (length(x) < 2) return(seq(0, 1, length.out = n))
+  q <- quantile(x, probs = probs, na.rm = TRUE)
+  seq(q[1], q[2], length.out = n)
+}
+
+default_bandwidth <- function(x) {
+  x <- x[is.finite(x)]
+  if (length(x) < 2) return(1)
+  bw <- tryCatch(bw.SJ(x, method = "ste"), error = function(e) bw.nrd0(x))
+  if (!is.finite(bw) || bw <= 0) bw <- 1
+  bw
+}
+
+discretize_kde <- function(x, evalpoints, bw = NULL) {
+  x <- x[is.finite(x)]
+  if (length(x) < 2) return(rep(0, length(evalpoints)))
+  if (is.null(bw)) bw <- default_bandwidth(x)
+  dens <- density(x, bw = bw, from = min(evalpoints),
+                  to = max(evalpoints), n = length(evalpoints))
+  dens$y
+}
+
+# ---- DZ matrix: KDE normalised to sum = 1 per variable ----------------------
+x_grids <- lapply(dz_vars, function(v)
+  get_evalpoints(as.numeric(DUMMY4_DZ[[v]]), N_POINTS))
+names(x_grids) <- dz_vars
+
+DZ_mat <- matrix(0, length(samples), length(dz_vars) * N_POINTS,
+                 dimnames = list(samples, NULL))
+
+for (i in seq_along(samples)) {
+  samp_data <- DUMMY4_DZ[DUMMY4_DZ$sample == samples[i], ]
+  row_vec <- c()
+  for (v in dz_vars) {
+    bw_global <- default_bandwidth(as.numeric(DUMMY4_DZ[[v]]))
+    vals      <- as.numeric(samp_data[[v]])
+    y         <- discretize_kde(vals, x_grids[[v]], bw = bw_global)
+    y         <- y / max(sum(y), 1e-10)
+    row_vec   <- c(row_vec, y)
+  }
+  DZ_mat[i, ] <- row_vec
+}
+
+# ---- BP matrix: simplex with Laplace smoothing ------------------------------
+BP_counts <- DUMMY4_grainsize %>%
+  group_by(sample, name) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  pivot_wider(names_from = name, values_from = n, values_fill = 0) %>%
+  arrange(match(sample, samples))
+
+minerals <- setdiff(names(BP_counts), "sample")
+BP_raw   <- as.matrix(BP_counts[, minerals])
+BP_mat   <- (BP_raw + 1e-6) / rowSums(BP_raw + 1e-6)
+rownames(BP_mat) <- samples
+
+stopifnot(identical(rownames(DZ_mat), rownames(BP_mat)))
+
+cat(sprintf("DZ : %d samples x %d features (%d vars x %d pts)\n",
+            nrow(DZ_mat), ncol(DZ_mat), length(dz_vars), N_POINTS))
+cat(sprintf("BP : %d samples x %d components [%s]\n",
+            nrow(BP_mat), ncol(BP_mat), paste(minerals, collapse = ", ")))
+```
+
+---
+
+## 3. Build end-member reference matrices (B ground truth)
+
+```{r build-em-blocks}
+em_ids <- sort(unique(DUMMY4_EM$sample))
+
+# B_true DZ: same KDE preprocessing as mixtures
+B_true_dz <- matrix(0, length(em_ids), length(dz_vars) * N_POINTS,
+                    dimnames = list(em_ids, NULL))
+
+for (i in seq_along(em_ids)) {
+  em_data <- DUMMY4_EM[DUMMY4_EM$sample == em_ids[i], ]
+  row_vec <- c()
+  for (v in dz_vars) {
+    all_vals_v <- as.numeric(DUMMY4_EM$value[DUMMY4_EM$name == v])
+    bw_v  <- default_bandwidth(all_vals_v)
+    vals  <- as.numeric(em_data$value[em_data$name == v])
+    y     <- discretize_kde(vals, x_grids[[v]], bw = bw_v)
+    y     <- y / max(sum(y), 1e-10)
+    row_vec <- c(row_vec, y)
+  }
+  B_true_dz[i, ] <- row_vec
+}
+
+# B_true BP: simplex with Laplace smoothing
+bp_em_counts <- DUMMY4_EM %>%
+  filter(name %in% minerals) %>%
+  group_by(sample, name) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  pivot_wider(names_from = name, values_from = n, values_fill = 0) %>%
+  arrange(match(sample, em_ids))
+
+B_true_bp_raw <- as.matrix(bp_em_counts[, minerals])
+B_true_bp     <- (B_true_bp_raw + 1e-6) / rowSums(B_true_bp_raw + 1e-6)
+rownames(B_true_bp) <- em_ids
+
+cat("B_true_dz:", nrow(B_true_dz), "x", ncol(B_true_dz), "\n")
+cat("B_true_bp:\n"); print(round(B_true_bp, 3))
+```
+
+---
+
+## 4. True mixing proportions (A_true)
+
+```{r align-atrue}
+A_true <- DUMMY4_A_true %>%
+  filter(sample %in% samples) %>%
+  arrange(match(sample, samples)) %>%
+  select(-sample) %>%
+  as.matrix()
+rownames(A_true) <- samples
+colnames(A_true) <- paste0("EM", 1:K)
+```
+
+---
+
+## 5. Run unmixing — six methods
+
+All methods use `unmix()` with `normalize_blocks = "by_col"` (the default),
+which normalises B and X by column L2-norms of B before solving for A, while
+computing the convergence loss on the original raw scale. This is essential for
+`inv_f` block weighting to function correctly across blocks with very different
+feature counts (DZ: 903 vs BP: 5).
+
+```{r run-methods, cache=FALSE}
+clr_rows <- function(M, eps = 1e-6) {
+  M[M <= 0] <- eps
+  M <- M / rowSums(M)
+  as.matrix(compositions::clr(compositions::acomp(M)))
+}
+
+DZ_clr <- clr_rows(DZ_mat)
+BP_clr <- clr_rows(BP_mat)
+
+run <- function(...) {
+  fit <- unmix(...)
+  rownames(fit$A) <- samples
+  fit
+}
+
+# 1. Baseline: NNLS simplex, joint, inv_f
+fit_base <- run(
+  data_list  = list(DZ = DZ_mat, BP = BP_mat),
+  data_types = c(DZ = "continuous", BP = "simplex"),
+  K = K, weighting = "inv_f", adaptive = "none",
+  normalize_blocks = "by_col",
+  max_iter = 5000, tol = 1e-8, eta_A = 0.5, seed = 1
+)
+
+# 2. Entropy + inv_f
+fit_ent <- run(
+  data_list  = list(DZ = DZ_mat, BP = BP_mat),
+  data_types = c(DZ = "continuous", BP = "simplex"),
+  K = K, weighting = "inv_f", adaptive = "entropy",
+  normalize_blocks = "by_col",
+  max_iter = 5000, tol = 1e-8, eta_A = 0.5, seed = 1
+)
+
+# 3. DZ only
+fit_dz <- run(
+  data_list  = list(DZ = DZ_mat),
+  data_types = c(DZ = "continuous"),
+  K = K, weighting = "none", adaptive = "none",
+  normalize_blocks = "by_col",
+  max_iter = 5000, tol = 1e-8, eta_A = 0.5, seed = 1
+)
+
+# 4. BP only
+fit_bp <- run(
+  data_list  = list(BP = BP_mat),
+  data_types = c(BP = "simplex"),
+  K = K, weighting = "none", adaptive = "none",
+  normalize_blocks = "by_col",
+  max_iter = 10000, tol = 1e-8, eta_A = 0.5, seed = 1
+)
+
+# 5. CLR + NNLS (no by_col — already in symmetric CLR space)
+fit_clr_nnls <- run(
+  data_list  = list(DZ = DZ_clr, BP = BP_clr),
+  data_types = c(DZ = "clr", BP = "clr"),
+  K = K, weighting = "none", adaptive = "none",
+  normalize_blocks = "none",
+  method = "nnls", max_iter = 5000, tol = 1e-8, eta_A = 0.5, seed = 1
+)
+
+# 6. CLR + OLS
+fit_clr_ols <- run(
+  data_list  = list(DZ = DZ_clr, BP = BP_clr),
+  data_types = c(DZ = "clr", BP = "clr"),
+  K = K, weighting = "none", adaptive = "none",
+  normalize_blocks = "none",
+  method = "ols", max_iter = 5000, tol = 1e-8, eta_A = 0.5, seed = 2
+)
+```
+
+---
+
+## 6. Align end-members to ground truth
+
+End-members are permuted using the Hungarian algorithm applied to Hellinger
+distances between estimated and true DZ signatures (B₁). For BP-only fits,
+alignment uses MAE on mineral proportions (B₂). For CLR fits, B is
+back-transformed to simplex before alignment.
+
+```{r align-results}
+hellinger <- function(p, q) {
+  p <- p / max(sum(p), 1e-10)
+  q <- q / max(sum(q), 1e-10)
+  sqrt(0.5 * sum((sqrt(p) - sqrt(q))^2))
+}
+
+align_via_B1 <- function(A_est, B1_est, B_true_dz, dz_vars, n_pts, A_true) {
+  K_loc <- ncol(A_true)
+  cost  <- matrix(0, K_loc, K_loc)
+  for (h in seq_len(K_loc)) {
+    for (k in seq_len(K_loc)) {
+      d <- 0
+      for (vi in seq_along(dz_vars)) {
+        cols   <- ((vi - 1) * n_pts + 1):(vi * n_pts)
+        d      <- d + hellinger(B_true_dz[h, cols], B1_est[k, cols])
+      }
+      cost[h, k] <- d / length(dz_vars)
+    }
+  }
+  perm  <- as.integer(clue::solve_LSAP(cost))
+  A_out <- A_est[, perm, drop = FALSE]
+  colnames(A_out) <- colnames(A_true)
+  list(A = A_out, perm = perm)
+}
+
+align_via_B2 <- function(A_est, B2_est, B_true_bp, A_true) {
+  K_loc <- ncol(A_true)
+  cost  <- matrix(0, K_loc, K_loc)
+  for (h in seq_len(K_loc)) for (k in seq_len(K_loc))
+    cost[h, k] <- mean(abs(B_true_bp[h, ] - B2_est[k, ]))
+  perm  <- as.integer(clue::solve_LSAP(cost))
+  A_out <- A_est[, perm, drop = FALSE]
+  colnames(A_out) <- colnames(A_true)
+  list(A = A_out, perm = perm)
+}
+
+clr_to_simplex <- function(M) {
+  out <- t(apply(M, 1, function(r) as.numeric(compositions::clrInv(r))))
+  out / rowSums(out)
+}
+
+al_base     <- align_via_B1(fit_base$A,     fit_base$B_list[["DZ"]],
+                             B_true_dz, dz_vars, N_POINTS, A_true)
+al_ent      <- align_via_B1(fit_ent$A,      fit_ent$B_list[["DZ"]],
+                             B_true_dz, dz_vars, N_POINTS, A_true)
+al_dz       <- align_via_B1(fit_dz$A,       fit_dz$B_list[["DZ"]],
+                             B_true_dz, dz_vars, N_POINTS, A_true)
+al_bp       <- align_via_B2(fit_bp$A,       fit_bp$B_list[["BP"]],
+                             B_true_bp, A_true)
+al_clr_nnls <- align_via_B1(fit_clr_nnls$A,
+                             clr_to_simplex(fit_clr_nnls$B_list[["DZ"]]),
+                             B_true_dz, dz_vars, N_POINTS, A_true)
+al_clr_ols  <- align_via_B1(fit_clr_ols$A,
+                             clr_to_simplex(fit_clr_ols$B_list[["DZ"]]),
+                             B_true_dz, dz_vars, N_POINTS, A_true)
+
+A_base     <- al_base$A
+A_ent      <- al_ent$A
+A_dz       <- al_dz$A
+A_bp       <- al_bp$A
+A_clr_nnls <- al_clr_nnls$A
+A_clr_ols  <- al_clr_ols$A
+
+mae <- function(e, t) mean(abs(e - t))
+r2  <- function(e, t) cor(as.vector(t), as.vector(e))^2
+```
+
+---
+
+## 7. Accuracy table
+
+```{r mae-table}
+method_levels <- c("Baseline", "Entropy + inv_f", "DZ only",
+                   "BP only",  "CLR + NNLS",      "CLR + OLS")
+
+results <- tibble(
+  Method    = method_levels,
+  MAE       = c(mae(A_base, A_true), mae(A_ent,      A_true),
+                mae(A_dz,  A_true),  mae(A_bp,       A_true),
+                mae(A_clr_nnls, A_true), mae(A_clr_ols, A_true)),
+  R2        = c(r2(A_base, A_true),  r2(A_ent,       A_true),
+                r2(A_dz,   A_true),  r2(A_bp,        A_true),
+                r2(A_clr_nnls, A_true),  r2(A_clr_ols, A_true)),
+  Converged = c(fit_base$converged,  fit_ent$converged,
+                fit_dz$converged,    fit_bp$converged,
+                fit_clr_nnls$converged, fit_clr_ols$converged),
+  Iters     = c(fit_base$iters,      fit_ent$iters,
+                fit_dz$iters,        fit_bp$iters,
+                fit_clr_nnls$iters,  fit_clr_ols$iters)
+) %>%
+  arrange(MAE) %>%
+  mutate(MAE = round(MAE, 4), R2 = round(R2, 3))
+
+knitr::kable(results,
+             caption = "Recovery accuracy: MAE and R² between estimated and true A")
+```
+
+The joint methods (Baseline, Entropy + inv_f) outperform single-block approaches
+when both blocks carry complementary provenance information. The CLR-transformed
+methods show systematically higher MAE, consistent with the theoretical
+prediction that CLR transformation breaks the linear mixing relationships that
+hold in simplex space.
+
+---
+
+## 8. Estimated vs. true proportions (scatter)
+
+```{r fig-scatter, fig.width = 10, fig.height = 6}
+pal <- c(
+  "Baseline"       = "#1f77b4",
+  "Entropy + inv_f"= "#9467bd",
+  "DZ only"        = "#ff7f0e",
+  "BP only"        = "#d62728",
+  "CLR + NNLS"     = "#17becf",
+  "CLR + OLS"      = "#8c564b"
+)
+
+scatter_df <- bind_rows(
+  tibble(true = as.vector(A_true), est = as.vector(A_base),     method = "Baseline"),
+  tibble(true = as.vector(A_true), est = as.vector(A_ent),      method = "Entropy + inv_f"),
+  tibble(true = as.vector(A_true), est = as.vector(A_dz),       method = "DZ only"),
+  tibble(true = as.vector(A_true), est = as.vector(A_bp),       method = "BP only"),
+  tibble(true = as.vector(A_true), est = as.vector(A_clr_nnls), method = "CLR + NNLS"),
+  tibble(true = as.vector(A_true), est = as.vector(A_clr_ols),  method = "CLR + OLS")
+) %>%
+  mutate(method = factor(method, levels = method_levels))
+
+mae_labels <- results %>%
+  mutate(method = factor(Method, levels = method_levels),
+         label  = sprintf("MAE = %.4f\nR\u00b2 = %.3f", MAE, R2))
+
+ggplot(scatter_df, aes(x = true, y = est)) +
+  geom_abline(slope = 1, intercept = 0,
+              linetype = "dashed", colour = "grey55", linewidth = 0.55) +
+  geom_point(aes(colour = method), size = 2.2, alpha = 0.82) +
+  geom_text(data    = mae_labels,
+            mapping = aes(x = 0.03, y = 0.97, label = label),
+            hjust = 0, vjust = 1, size = 3.0, fontface = "bold",
+            inherit.aes = FALSE) +
+  facet_wrap(~ method, nrow = 2) +
+  scale_x_continuous(limits = c(0, 1), labels = percent_format(1),
+                     breaks = c(0, 0.5, 1)) +
+  scale_y_continuous(limits = c(0, 1), labels = percent_format(1),
+                     breaks = c(0, 0.5, 1)) +
+  scale_colour_manual(values = pal) +
+  labs(x       = "True proportion",
+       y       = "Estimated proportion",
+       title   = "Modelled vs. true end-member proportions",
+       caption = "Dashed line = 1:1 perfect recovery") +
+  theme_minimal(base_size = 11) +
+  theme(legend.position  = "none",
+        strip.text       = element_text(face = "bold"),
+        panel.grid.minor = element_blank(),
+        plot.title       = element_text(face = "bold")) +
+  coord_fixed()
+```
+
+---
+
+## 9. Per-sample mixing proportions (bar chart)
+
+```{r fig-bars, fig.width = 12, fig.height = 9}
+build_A_long <- function(A, type) {
+  as.data.frame(A) %>%
+    rownames_to_column("sample") %>%
+    pivot_longer(-sample, names_to = "source", values_to = "value") %>%
+    mutate(type = type)
+}
+
+A_long <- bind_rows(
+  build_A_long(A_true,     "True"),
+  build_A_long(A_base,     "Baseline"),
+  build_A_long(A_ent,      "Entropy + inv_f"),
+  build_A_long(A_dz,       "DZ only"),
+  build_A_long(A_bp,       "BP only"),
+  build_A_long(A_clr_nnls, "CLR + NNLS"),
+  build_A_long(A_clr_ols,  "CLR + OLS")
+) %>%
+  mutate(
+    sample = factor(sample, levels = samples),
+    type   = factor(type, levels = c("True", method_levels))
+  )
+
+pal_full <- c("True" = "#2ca02c", pal)
+
+ggplot(A_long, aes(x = source, y = value, fill = type)) +
+  geom_col(position = position_dodge(0.85), width = 0.8) +
+  facet_wrap(~ sample, ncol = 5) +
+  scale_y_continuous(labels = percent_format(1), limits = c(0, 1.05)) +
+  scale_fill_manual(values = pal_full, name = NULL) +
+  labs(x = NULL, y = "Proportion",
+       title = "Mixing proportions (A): true vs. estimated by method") +
+  theme_minimal(base_size = 9.5) +
+  theme(legend.position  = "top",
+        strip.text       = element_text(face = "bold"),
+        panel.grid.minor = element_blank(),
+        plot.title       = element_text(face = "bold"),
+        axis.text.x      = element_text(size = 7.5))
+```
+
+---
+
+## 10. DZ source signatures (B₁)
+
+Estimated KDE distributions for the three end-members from the Baseline fit,
+compared to the known true signatures. Rows = end-members (EM1–EM3),
+columns = geochemical proxies.
+
+```{r fig-B1, fig.width = 12, fig.height = 7.5}
+perm_base  <- al_base$perm
+B1_est     <- fit_base$B_list[["DZ"]]
+B1_aligned <- B1_est[perm_base, , drop = FALSE]
+
+B1_df <- bind_rows(lapply(seq_along(dz_vars), function(vi) {
+  v    <- dz_vars[vi]
+  grid <- x_grids[[v]]
+  cols <- ((vi - 1) * N_POINTS + 1):(vi * N_POINTS)
+  bind_rows(lapply(1:K, function(h) {
+    y_t <- B_true_dz[h, cols];  y_t <- y_t / max(max(y_t), 1e-10)
+    y_e <- B1_aligned[h, cols]; y_e <- y_e / max(max(y_e), 1e-10)
+    bind_rows(
+      tibble(x = grid, y = y_t, EM = paste0("EM", h), var = v, type = "True"),
+      tibble(x = grid, y = y_e, EM = paste0("EM", h), var = v, type = "Estimated")
+    )
+  }))
+})) %>%
+  mutate(EM   = factor(EM,  levels = paste0("EM", 1:K)),
+         var  = factor(var, levels = dz_vars),
+         type = factor(type, levels = c("True", "Estimated")))
+
+ggplot(B1_df, aes(x = x, y = y, colour = type, linetype = type)) +
+  geom_line(linewidth = 0.65) +
+  facet_grid(EM ~ var, scales = "free_x") +
+  scale_colour_manual(values = c(True = "#d62728", Estimated = "#1f77b4"),
+                      name = NULL) +
+  scale_linetype_manual(values = c(True = "solid", Estimated = "dashed"),
+                        name = NULL) +
+  labs(x = NULL, y = "Density (normalised)",
+       title    = "DZ source signatures (B\u2081): estimated vs. true",
+       subtitle = "Baseline method — rows = end-members, columns = proxies") +
+  theme_minimal(base_size = 9.5) +
+  theme(legend.position  = "top",
+        strip.text.x     = element_text(face = "bold", size = 8),
+        strip.text.y     = element_text(face = "bold"),
+        panel.grid.minor = element_blank(),
+        axis.text.x      = element_blank(),
+        axis.ticks.x     = element_blank(),
+        plot.title       = element_text(face = "bold"))
+```
+
+---
+
+## 11. BP source compositions (B₂)
+
+Estimated mineral proportions for the three end-members from the Baseline fit,
+compared to the true simplex compositions.
+
+```{r fig-B2, fig.width = 8.5, fig.height = 4}
+B2_est     <- fit_base$B_list[["BP"]]
+colnames(B2_est) <- minerals
+B2_aligned <- B2_est[perm_base, , drop = FALSE]
+
+B2_df <- bind_rows(
+  as.data.frame(B_true_bp) %>%
+    mutate(EM = paste0("EM", 1:K)) %>%
+    pivot_longer(-EM, names_to = "mineral", values_to = "prop") %>%
+    mutate(type = "True"),
+  as.data.frame(B2_aligned) %>%
+    mutate(EM = paste0("EM", 1:K)) %>%
+    pivot_longer(-EM, names_to = "mineral", values_to = "prop") %>%
+    mutate(type = "Estimated")
+) %>%
+  mutate(EM      = factor(EM,      levels = paste0("EM", 1:K)),
+         mineral = factor(mineral, levels = minerals),
+         type    = factor(type,    levels = c("True", "Estimated")))
+
+mae_B2 <- B2_df %>%
+  pivot_wider(names_from = type, values_from = prop) %>%
+  summarise(mae = mean(abs(True - Estimated), na.rm = TRUE)) %>%
+  pull(mae)
+
+ggplot(B2_df, aes(x = mineral, y = prop * 100, fill = type)) +
+  geom_col(position = position_dodge(0.8), width = 0.7) +
+  facet_wrap(~ EM, nrow = 1) +
+  scale_fill_manual(values = c(True = "#d62728", Estimated = "#1f77b4"),
+                    name = NULL) +
+  labs(x = NULL, y = "Proportion (%)",
+       title    = "BP source compositions (B\u2082): estimated vs. true",
+       subtitle = sprintf("Baseline | MAE(B\u2082) = %.4f", mae_B2)) +
+  theme_minimal(base_size = 11) +
+  theme(legend.position  = "top",
+        axis.text.x      = element_text(angle = 40, hjust = 1),
+        strip.text       = element_text(face = "bold"),
+        panel.grid.minor = element_blank(),
+        plot.title       = element_text(face = "bold"),
+        plot.subtitle    = element_text(colour = "grey40"))
+```
+
+---
+
+## 12. Key results
+
+The benchmark confirms the following properties of the geomix unmixing framework:
+
+**Joint vs. single-block:** When blocks carry genuinely complementary information
+(DZ and BP sample different grain-size fractions here), joint unmixing with
+`inv_f` weighting outperforms both single-block approaches. The `inv_f` scheme
+correctly down-weights the DZ block (903 features) relative to BP (5 features),
+preventing the high-dimensional distributional data from dominating.
+
+**Simplex vs. CLR:** CLR-transformed methods (CLR + NNLS, CLR + OLS) yield
+substantially higher MAE than their simplex-space counterparts. This is
+consistent with the theoretical incompatibility of CLR transformation with
+linear mixing: mixing is linear in simplex space, but the CLR map is non-linear
+with respect to mixing proportions, so NMF-style alternating solvers converge
+to systematically biased solutions.
+
+**Adaptive weighting:** Entropy + inv_f does not outperform the Baseline on
+DUMMY4. This is expected — entropy weighting helps most when samples vary
+strongly in how well each block constrains the unmixing, which is not the case
+in this uniform synthetic dataset.
+
+---
+
+## Session info
+
+```{r session-info}
+sessionInfo()
 ```

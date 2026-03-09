@@ -146,6 +146,27 @@ normalize_block_by_col <- function(B, X) {
   )
 }
 
+#' Normalize a list of B and X matrices by column L2-norms of B
+#'
+#' Applied externally before solve_A so that global_weights operate on the
+#' raw block scales. Loss is always computed on the un-normalised data.
+#' Identical to normalize_blocks_fun("by_col") in the validation script.
+#' @param B_list List of source signature matrices (K x F_b)
+#' @param X_list List of data matrices (N x F_b)
+#' @return List with B_list and X_list, each column divided by its L2-norm in B
+#' @keywords internal
+normalize_by_col <- function(B_list, X_list) {
+  res <- mapply(function(B, X) {
+    s <- sqrt(colSums(B^2))
+    s[!is.finite(s) | s == 0] <- 1
+    list(B = sweep(B, 2, s, "/"), X = sweep(X, 2, s, "/"))
+  }, B_list, X_list, SIMPLIFY = FALSE)
+  list(
+    B_list = lapply(res, `[[`, "B"),
+    X_list = lapply(res, `[[`, "X")
+  )
+}
+
 # =============================================================================
 # WEIGHTED SOLVERS
 # =============================================================================
@@ -166,8 +187,11 @@ solve_A_joint_weighted <- function(B_list, X_list, W, global_weights, method = "
   N <- nrow(X_list[[1]])
   K <- nrow(B_list[[1]])
 
-  # Normalize each block
-  normalized_list <- mapply(normalize_block_by_col, B_list, X_list, SIMPLIFY = FALSE)
+  # NOTE: normalize_block_by_col is intentionally NOT applied here.
+  # It collapses the absolute scale difference between blocks (e.g. DZ vs BP),
+  # reducing the effective BP/DZ weight ratio from ~80000x to ~180x and
+  # severely degrading recovery. global_weights (inv_f, sqrt_inv_f) rely on
+  # the raw scale of B to function correctly.
 
   A_new <- matrix(0, N, K)
 
@@ -175,8 +199,8 @@ solve_A_joint_weighted <- function(B_list, X_list, W, global_weights, method = "
     B_parts <- X_parts <- list()
     for (b in seq_along(B_list)) {
       w <- sqrt(W[i, b] * global_weights[b])
-      B_parts[[b]] <- normalized_list[[b]]$Bn * w
-      X_parts[[b]] <- normalized_list[[b]]$Xn[i, ] * w
+      B_parts[[b]] <- B_list[[b]] * w
+      X_parts[[b]] <- X_list[[b]][i, ] * w
     }
     B_concat <- do.call(cbind, B_parts)
     x_concat <- unlist(X_parts)

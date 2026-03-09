@@ -88,6 +88,7 @@ unmix <- function(data_list,
                   weighting = c("sqrt_inv_f", "inv_f", "none"),
                   adaptive = c("none", "entropy"),
                   method = c("nnls", "ols"),
+                  normalize_blocks = c("by_col", "none"),
                   max_iter = 2000,
                   tol = 1e-8,
                   eta_A = 0.5,
@@ -98,6 +99,7 @@ unmix <- function(data_list,
   weighting <- match.arg(weighting)
   adaptive <- match.arg(adaptive)
   method <- match.arg(method)
+  normalize_blocks <- match.arg(normalize_blocks)
 
   # Input validation
   if (!is.list(data_list) || length(data_list) == 0) {
@@ -227,14 +229,24 @@ unmix <- function(data_list,
       W <- compute_entropy_weights(A, B_list, X_list, K)
     }
 
+    # Normalize blocks before solving A (external, preserves raw scale for loss)
+    if (normalize_blocks == "by_col") {
+      norm_res <- normalize_by_col(B_list, X_list)
+      B_use <- norm_res$B_list
+      X_use <- norm_res$X_list
+    } else {
+      B_use <- B_list
+      X_use <- X_list
+    }
+
     # Update A jointly using all blocks with weights
-    A_new <- solve_A_joint_weighted(B_list, X_list, W, global_weights, method)
+    A_new <- solve_A_joint_weighted(B_use, X_use, W, global_weights, method)
 
     # Gradient step with momentum
     A <- (1 - eta_A) * A + eta_A * A_new
     A <- row_simplex(A)
 
-    # Compute loss
+    # Compute loss on raw (un-normalised) data — same as working script
     cur_loss <- compute_weighted_loss(A, B_list, X_list, W, global_weights)
     loss_history[t] <- cur_loss
 
@@ -293,7 +305,8 @@ unmix <- function(data_list,
     settings = list(
       weighting = weighting,
       adaptive = adaptive,
-      method = method
+      method = method,
+      normalize_blocks = normalize_blocks
     ),
     call = match.call()
   )
