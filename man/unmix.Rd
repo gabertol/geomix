@@ -11,6 +11,7 @@ unmix(
   weighting = c("sqrt_inv_f", "inv_f", "none"),
   adaptive = c("none", "entropy"),
   method = c("nnls", "ols"),
+  normalize_blocks = c("by_col", "none"),
   max_iter = 2000,
   tol = 1e-08,
   eta_A = 0.5,

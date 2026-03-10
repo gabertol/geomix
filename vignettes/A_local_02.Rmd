@@ -1,0 +1,357 @@
+---
+title: "Non-Uniform Mixtures and Grain-Size Dependent Provenance"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Non-Uniform Mixtures and Grain-Size Dependent Provenance}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse   = TRUE,
+  comment    = "#>",
+  fig.width  = 14,
+  fig.height = 7,
+  out.width  = "100%"
+)
+```
+
+## Overview
+
+Standard provenance unmixing assumes that each sample is a **uniform mixture** of
+its sources — that is, the mixing proportions (A) are the same regardless of which
+analytical technique or grain-size fraction is examined. In practice, this assumption
+is often violated: different source areas supply sediment predominantly in different
+grain-size ranges, so the apparent contribution of each source shifts systematically
+across fractions.
+
+This vignette demonstrates how `geomix` handles this scenario through the concept
+of **local mixing proportions** (`A_local`). Using the `dummy6` synthetic dataset —
+where ground truth is fully known — we show that:
+
+1. A joint unmixing fit (`A_global`) recovers a single, fraction-averaged proportion
+   per sample, missing the grain-size-dependent signal.
+2. `A_local` re-estimates proportions separately for each fraction by fixing the
+   known end-member signatures (B) and re-solving for A per fraction, recovering
+   the true mixing curves.
+3. The divergence between `A_local` and `A_global` is itself a diagnostic: large
+   divergence signals non-uniform mixing; small divergence confirms the global
+   assumption holds.
+
+## The DUMMY6 Dataset
+
+`dummy6` is a fully synthetic benchmark with **known ground truth**, designed to
+test the detection and reconstruction of grain-size-dependent mixing. It contains:
+
+- **15 samples** (S01–S15), each a mixture of 3 end-members with varying proportions
+- **6 grain-size fractions**: Very Coarse Sand (VCS), Coarse Sand (CS), Medium Sand
+  (MS), Fine Sand (FS), Silt, and Clay
+- **6 minerals** per fraction: Qtz, Fsp, Mica, Carb, Clay, Lith
+- **End-member grain-size preferences**: EM1 concentrates in coarse fractions,
+  EM3 in fine fractions, EM2 intermediate — so the apparent mixing proportions
+  shift predictably across fractions
+
+```{r load-data}
+library(geomix)
+library(tidyverse)
+library(clue)
+library(nnls)
+
+data(dummy6)
+
+fractions <- dummy6$fractions  # VCS, CS, MS, FS, Silt, Clay
+minerals  <- dummy6$minerals   # Qtz, Fsp, Mica, Carb, Clay, Lith
+```
+
+### End-member grain-size preferences
+
+The key feature of DUMMY6 is that each end-member contributes differently to each
+fraction. EM1 dominates coarse sand; EM3 dominates clay — creating predictable
+mixing curves that shift monotonically from coarse to fine.
+
+```{r em-grainsize, fig.width = 7, fig.height = 4}
+dummy6$EM_grainsize |>
+  pivot_longer(-EM, names_to = "fraction", values_to = "weight") |>
+  mutate(fraction = factor(fraction, levels = fractions)) |>
+  ggplot(aes(x = fraction, y = weight, color = EM, group = EM)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2.5) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_color_manual(
+    values = c("EM1" = "#d95f02", "EM2" = "#7570b3", "EM3" = "#1b9e77")
+  ) +
+  labs(
+    title    = "End-member grain-size preferences",
+    subtitle = "Each source contributes differently across fractions",
+    x        = "Grain-size fraction (coarse to fine)",
+    y        = "Relative weight",
+    color    = "End-member"
+  ) +
+  theme_minimal(base_size = 11)
+```
+
+Because of these preferences, the true mixing proportions per fraction
+(`A_per_fraction`) differ substantially from the bulk total proportions (`A_total`).
+This grain-size-dependent signal is what `A_local` aims to recover.
+
+## Building the Data Blocks
+
+Each grain-size fraction becomes a separate compositional block. All six fractions
+are passed jointly to `unmix()`, sharing a single A matrix across them.
+
+```{r build-blocks}
+blocks <- fractions |>
+  set_names() |>
+  map(\(frac) {
+    build_compositional_block(
+      comp_df   = dummy6$observed[[frac]],
+      comp_cols = minerals,
+      apply_clr = FALSE
+    )
+  })
+
+common_samples <- Reduce(intersect, lapply(blocks, `[[`, "samples"))
+
+data_list  <- map(blocks, \(b) b$data_mat[common_samples, ])
+data_types <- set_names(rep("simplex", length(fractions)), fractions)
+```
+
+## Joint Unmixing: A_global
+
+`unmix()` fits a single **global** A matrix — one set of proportions per sample,
+shared across all fractions. This is the standard unmixing result.
+
+```{r unmix}
+set.seed(123)
+
+fit <- unmix(
+  data_list  = data_list,
+  data_types = data_types,
+  K          = 3,
+  weighting  = "inv_f",
+  adaptive   = "none",
+  verbose    = FALSE
+)
+
+# Align A_global to true EM labels via Hungarian algorithm
+B_true <- dummy6$EM_mineralogy |>
+  select(-EM) |>
+  as.matrix()
+rownames(B_true) <- dummy6$EM_mineralogy$EM
+B_true   <- B_true[, minerals]
+em_names <- rownames(B_true)
+
+B_ref <- fit$B_list[[1]][, minerals]
+cost  <- outer(
+  seq_len(nrow(B_ref)), seq_len(nrow(B_true)),
+  Vectorize(\(i, j) mean(abs(B_ref[i, ] - B_true[j, ])))
+)
+perm             <- as.integer(solve_LSAP(cost))
+A_global_aligned <- fit$A[, perm]
+colnames(A_global_aligned) <- em_names
+
+cat("A_global dimensions:", dim(A_global_aligned), "\n")
+cat("Permutation (Source -> EM):", perm, "\n")
+```
+
+## Computing A_local
+
+The key insight: fix the known end-member signatures (B) and **re-solve for A
+independently within each fraction**. This allows mixing proportions to vary
+across fractions while keeping the end-member identities fully consistent.
+
+In DUMMY6, we use the ground-truth B directly to demonstrate that `A_local`
+perfectly recovers the true mixing curves when end-members are known. In real
+datasets, estimated B from the global fit would be used instead.
+
+```{r compute-alocal}
+# Helper: solve A given fixed B, row-by-row with NNLS + simplex normalisation
+solve_A_fixed_B <- function(X, B) {
+  X  <- as.matrix(X)
+  B  <- as.matrix(B)
+  N  <- nrow(X)
+  K  <- nrow(B)
+  Bt <- t(B)
+  A_est <- matrix(NA_real_, nrow = N, ncol = K,
+                  dimnames = list(rownames(X), rownames(B)))
+  for (i in seq_len(N)) {
+    a_i <- coef(nnls(Bt, as.numeric(X[i, ])))
+    s   <- sum(a_i)
+    A_est[i, ] <- if (s > 0) a_i / s else rep(1 / K, K)
+  }
+  A_est
+}
+
+# Compute A_local for every fraction using true B
+A_local_by_fraction <- fractions |>
+  set_names() |>
+  map(\(frac) {
+    X <- blocks[[frac]]$data_mat[common_samples, ]
+    solve_A_fixed_B(X, B_true)
+  })
+
+cat("A_local computed for:", names(A_local_by_fraction), "\n")
+```
+
+## Mixing Curves: All Samples
+
+The central result: how end-member proportions change across fractions for all
+15 samples. Each column is a sample; each row is an end-member.
+Black = true A per fraction; green = A_local; orange = A_global (flat line).
+
+```{r mixing-curves, fig.width = 14, fig.height = 7}
+# True A per fraction
+df_true <- fractions |>
+  map_df(\(frac) {
+    dummy6$A_per_fraction |>
+      filter(fraction == frac) |>
+      pivot_longer(starts_with("EM"), names_to = "EM", values_to = "value") |>
+      mutate(type = "True A (per fraction)", fraction = frac)
+  })
+
+# A_local per fraction
+df_local <- fractions |>
+  map_df(\(frac) {
+    A_local_by_fraction[[frac]] |>
+      as.data.frame() |>
+      rownames_to_column("sample") |>
+      pivot_longer(-sample, names_to = "EM", values_to = "value") |>
+      mutate(type = "Local A (fixed B, same EMs)", fraction = frac)
+  })
+
+# A_global replicated as flat line across all fractions
+df_global <- A_global_aligned |>
+  as.data.frame() |>
+  rownames_to_column("sample") |>
+  pivot_longer(-sample, names_to = "EM", values_to = "value") |>
+  crossing(fraction = fractions) |>
+  mutate(type = "Global A (joint unmixing)")
+
+# Combine and set factor levels
+df_plot <- bind_rows(df_true, df_local, df_global) |>
+  mutate(
+    sample   = factor(sample,   levels = paste0("S", sprintf("%02d", 1:15))),
+    fraction = factor(fraction, levels = fractions),
+    EM       = factor(EM,       levels = em_names),
+    type     = factor(type, levels = c(
+      "True A (per fraction)",
+      "Local A (fixed B, same EMs)",
+      "Global A (joint unmixing)"
+    ))
+  )
+
+ggplot(df_plot, aes(x = fraction, y = value, color = type, group = type)) +
+  geom_line(linewidth = 0.9, alpha = 0.9) +
+  geom_point(size = 1.6) +
+  facet_grid(EM ~ sample) +
+  scale_y_continuous(
+    labels = scales::percent_format(),
+    limits = c(0, 1),
+    breaks = c(0, 0.5, 1),
+    expand = c(0, 0)
+  ) +
+  scale_color_manual(
+    values = c(
+      "True A (per fraction)"       = "black",
+      "Local A (fixed B, same EMs)" = "#1b9e77",
+      "Global A (joint unmixing)"   = "#d95f02"
+    )
+  ) +
+  labs(
+    title    = "DUMMY6 — Grain-size-dependent mixing curves",
+    subtitle = "Comparison between true A, global A and local A with fixed B",
+    x        = "Grain-size fraction",
+    y        = "End-member proportion",
+    color    = "A strategy"
+  ) +
+  theme_minimal(base_size = 8) +
+  theme(
+    legend.position = "top",
+    axis.text.x     = element_text(angle = 45, hjust = 1, size = 6),
+    axis.text.y     = element_text(size = 6),
+    strip.text.x    = element_text(face = "bold", size = 7),
+    strip.text.y    = element_text(face = "bold", size = 7),
+    panel.spacing   = unit(0.3, "lines"),
+    legend.key.size = unit(0.5, "cm")
+  )
+```
+
+`A_local` (green) closely tracks the true monotonic mixing curve for each
+end-member. `A_global` (orange) is a flat line — the fraction-averaged estimate
+that systematically misses the coarse-fraction dominance of EM1 and the
+fine-fraction dominance of EM3.
+
+## Validation: MAE by Fraction
+
+```{r mae-validation, fig.width = 8, fig.height = 4}
+A_true_by_frac <- fractions |>
+  set_names() |>
+  map(\(frac) {
+    dummy6$A_per_fraction |>
+      filter(fraction == frac) |>
+      select(sample, all_of(em_names)) |>
+      column_to_rownames("sample") |>
+      as.matrix()
+  })
+
+mae_summary <- fractions |>
+  map_df(\(frac) {
+    A_loc  <- A_local_by_fraction[[frac]][common_samples, ]
+    A_glob <- A_global_aligned[common_samples, ]
+    A_true <- A_true_by_frac[[frac]][common_samples, ]
+    tibble(
+      fraction   = frac,
+      MAE_local  = mean(abs(A_loc  - A_true)),
+      MAE_global = mean(abs(A_glob - A_true))
+    )
+  }) |>
+  mutate(fraction = factor(fraction, levels = fractions))
+
+mae_summary |>
+  pivot_longer(starts_with("MAE"), names_to = "strategy", values_to = "MAE") |>
+  mutate(strategy = recode(strategy,
+    "MAE_local"  = "A_local",
+    "MAE_global" = "A_global"
+  )) |>
+  ggplot(aes(x = fraction, y = MAE, fill = strategy)) +
+  geom_col(position = position_dodge(width = 0.7)) +
+  scale_fill_manual(values = c("A_local" = "#1b9e77", "A_global" = "#d95f02")) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  labs(
+    title    = "MAE vs. ground truth by fraction",
+    subtitle = "A_local consistently outperforms A_global, especially at the coarse and fine extremes",
+    x        = "Grain-size fraction (coarse to fine)",
+    y        = "MAE",
+    fill     = NULL
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(legend.position = "top")
+
+print(mae_summary)
+```
+
+## Practical Guidance
+
+**When to use `A_local`:**
+
+- When data blocks sample different grain-size fractions (e.g., detrital zircon
+  in fine sand, bulk petrography in medium-coarse sand)
+- When you suspect sources differ in their grain-size distributions
+- As a **diagnostic** on any multiproxy fit: if `A_local` diverges strongly from
+  `A_global` in a specific block, that block carries fraction-specific information
+  beyond the global signal
+
+**Interpretation of divergence:**
+
+| A_local vs A_global | Interpretation |
+|---|---|
+| Small divergence (all blocks) | Uniform mixing; global assumption holds |
+| Large divergence (specific block) | That proxy/fraction sees a different mixture |
+| Systematic trend across fractions | Grain-size-dependent provenance (this vignette) |
+
+## Session Info
+
+```{r session}
+sessionInfo()
+```
