@@ -305,8 +305,12 @@ back-transformed to simplex before alignment.
 
 ```{r align-results}
 hellinger <- function(p, q) {
-  p <- p / max(sum(p), 1e-10)
-  q <- q / max(sum(q), 1e-10)
+  p[!is.finite(p)] <- 0
+  q[!is.finite(q)] <- 0
+  s_p <- sum(p); s_q <- sum(q)
+  if (s_p <= 0 || s_q <= 0) return(1)   # máxima distância se KDE vazia
+  p <- p / s_p
+  q <- q / s_q
   sqrt(0.5 * sum((sqrt(p) - sqrt(q))^2))
 }
 
@@ -542,7 +546,7 @@ ggplot(B1_df, aes(x = x, y = y, colour = type, linetype = type)) +
   scale_linetype_manual(values = c(True = "solid", Estimated = "dashed"),
                         name = NULL) +
   labs(x = NULL, y = "Density (normalised)",
-       title    = "DZ source signatures (B\u2081): estimated vs. true",
+       title    = "DZ source signatures (B1): estimated vs. true",
        subtitle = "Baseline method — rows = end-members, columns = proxies") +
   theme_minimal(base_size = 9.5) +
   theme(legend.position  = "top",
@@ -591,8 +595,8 @@ ggplot(B2_df, aes(x = mineral, y = prop * 100, fill = type)) +
   scale_fill_manual(values = c(True = "#d62728", Estimated = "#1f77b4"),
                     name = NULL) +
   labs(x = NULL, y = "Proportion (%)",
-       title    = "BP source compositions (B\u2082): estimated vs. true",
-       subtitle = sprintf("Baseline | MAE(B\u2082) = %.4f", mae_B2)) +
+       title    = "BP source compositions (B2): estimated vs. true",
+       subtitle = sprintf("Baseline | MAE(B2) = %.4f", mae_B2)) +
   theme_minimal(base_size = 11) +
   theme(legend.position  = "top",
         axis.text.x      = element_text(angle = 40, hjust = 1),
