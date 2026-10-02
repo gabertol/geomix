@@ -27,6 +27,10 @@ NULL
 #'   or "nrd0" (Scott's rule). SJ is generally better but slower.
 #' @param bw_multiplier Bandwidth multiplier (default: 1.0). Values > 1 smooth
 #'   more, < 1 smooth less.
+#' @param grids Optional named list of evaluation grids (one numeric vector per
+#'   variable, e.g. the `grids` element of a previous call). When given, the grid
+#'   is not recomputed from the data, so blocks built from resampled data stay on
+#'   the same bins (used by `bootstrap_unmix()`).
 #' @param samples_order Optional character vector specifying sample order in
 #'   output matrix. If NULL, uses alphabetical order.
 #'
@@ -92,7 +96,8 @@ build_kde_block <- function(data_df,
                             probs = c(0.03, 0.97),
                             bw_method = c("SJ", "nrd0"),
                             bw_multiplier = 1.0,
-                            samples_order = NULL) {
+                            samples_order = NULL,
+                            grids = NULL) {
 
   bw_method <- match.arg(bw_method)
 
@@ -188,11 +193,17 @@ build_kde_block <- function(data_df,
     dens$y
   }
 
-  # Build evaluation grids (one per feature)
+  # Build evaluation grids (one per feature), unless fixed grids were given
+  grids_in <- grids
   grids <- list()
   for (var in vars) {
-    all_vals <- data_df[[var]]
-    grids[[var]] <- get_evalpoints(all_vals, n = n_points, probs = probs)
+    if (!is.null(grids_in[[var]])) {
+      grids[[var]] <- grids_in[[var]]
+      if (length(grids[[var]]) != n_points) n_points <- length(grids[[var]])
+    } else {
+      all_vals <- data_df[[var]]
+      grids[[var]] <- get_evalpoints(all_vals, n = n_points, probs = probs)
+    }
   }
 
   # Build data matrix

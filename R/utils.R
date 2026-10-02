@@ -1,8 +1,7 @@
 #' @title Utility Functions for Source Unmixing
 #' @name utils
 #' @keywords internal
-
-
+NULL
 #' Row-wise Simplex Normalization
 #'
 #' Normalizes rows of a matrix to sum to 1 (simplex constraint).

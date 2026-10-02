@@ -11,7 +11,8 @@ build_kde_block(
   probs = c(0.03, 0.97),
   bw_method = c("SJ", "nrd0"),
   bw_multiplier = 1,
-  samples_order = NULL
+  samples_order = NULL,
+  grids = NULL
 )
 }
 \arguments{
@@ -37,6 +38,11 @@ more, < 1 smooth less.}
 
 \item{samples_order}{Optional character vector specifying sample order in
 output matrix. If NULL, uses alphabetical order.}
+
+\item{grids}{Optional named list of evaluation grids (one numeric vector per
+variable, e.g. the `grids` element of a previous call). When given, the grid
+is not recomputed from the data, so blocks built from resampled data stay on
+the same bins (used by `bootstrap_unmix()`).}
 }
 \value{
 A list with components:

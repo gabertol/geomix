@@ -8,20 +8,34 @@ bootstrap_unmix(
   data_list,
   data_types = NULL,
   K,
+  raw_data_list = NULL,
+  kde_params = NULL,
   n_boot = 100,
   conf_level = 0.95,
   parallel = FALSE,
   n_cores = NULL,
   verbose = TRUE,
+  fit_original = NULL,
   ...
 )
 }
 \arguments{
-\item{data_list}{Named list of data matrices (same as unmix)}
+\item{data_list}{Named list of processed data matrices (output of
+build_kde_block / build_compositional_block — the $data_mat matrices)}
 
-\item{data_types}{Character vector specifying data types}
+\item{data_types}{Character vector specifying data types per block
+("continuous" or "simplex")}
 
 \item{K}{Number of sources}
+
+\item{raw_data_list}{Named list of raw data.frames (long format), one per
+KDE block. Each must have a "sample" column. Used for grain resampling.
+Blocks not present here fall back to row-resampling.}
+
+\item{kde_params}{Named list of build_kde_block parameters per block.
+Each element: list(vars, n_points, bw_method, bw_multiplier, probs, grids).
+Pass `probs` and `grids` (e.g. `grids = kde_block$grids`) so the resampled
+KDEs are evaluated on the same bins as the original block.}
 
 \item{n_boot}{Number of bootstrap iterations (default: 100)}
 
@@ -29,40 +43,24 @@ bootstrap_unmix(
 
 \item{parallel}{Logical, use parallel processing? (default: FALSE)}
 
-\item{n_cores}{Number of cores if parallel=TRUE (default: detectCores()-1)}
+\item{n_cores}{Number of cores if parallel=TRUE}
 
 \item{verbose}{Logical, print progress? (default: TRUE)}
 
-\item{...}{Additional arguments passed to unmix}
+\item{fit_original}{Optional: existing unmix() fit to use as alignment
+reference and avoid re-fitting. If NULL, fit is computed internally.}
+
+\item{...}{Additional arguments passed to unmix()}
 }
 \value{
-A list of class "bootstrap_result" containing:
-  \item{fit_original}{Original fit on full dataset}
-  \item{A_boot}{Array (n_boot x N x K) of bootstrapped A matrices}
-  \item{B_boot_list}{List of arrays (n_boot x K x F) for each data block}
-  \item{A_mean}{Mean of bootstrapped A estimates}
-  \item{A_lower}{Lower confidence bound for A}
-  \item{A_upper}{Upper confidence bound for A}
-  \item{A_se}{Standard error for A}
-  \item{conf_level}{Confidence level used}
-  \item{n_boot}{Number of bootstrap iterations}
+A list of class "bootstrap_result"
 }
 \description{
-Performs non-parametric bootstrap to estimate uncertainty in mixing
+Performs parametric bootstrap to estimate uncertainty in mixing
 proportions (A matrix) and source signatures (B matrices).
-}
-\examples{
-\dontrun{
-# Bootstrap uncertainty estimation
-boot_result <- bootstrap_unmix(
-  data_list = list(DZ = DZ, BP = BP_counts),
-  data_types = c(DZ = "continuous", BP = "compositional"),
-  K = 3,
-  n_boot = 100
-)
-
-# Plot confidence intervals
-plot(boot_result, type = "uncertainty")
-}
-
+For distributional (KDE) blocks, resamples individual grains per sample
+and rebuilds KDE. For compositional blocks, resamples counts via
+multinomial. This approach correctly propagates grain-level sampling
+uncertainty and avoids the NMF label-switching problem via Hungarian
+alignment at each iteration.
 }

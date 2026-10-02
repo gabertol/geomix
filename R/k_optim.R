@@ -158,6 +158,8 @@ k_plot <- function(ksum, show_sd = TRUE, elbow_k = NULL) {
   feats <- vapply(data_list, ncol, 1L)
   total_features <- sum(feats)
   B_dims <- lapply(data_list, dim)
-  B_dims_json <- tryCatch(jsonlite::toJSON(B_dims, auto_unbox = TRUE), error = function(e) NA_character_)
+  # as.character(): a "json" column cannot be row-bound by vctrs (dplyr::bind_rows)
+  B_dims_json <- tryCatch(as.character(jsonlite::toJSON(B_dims, auto_unbox = TRUE)),
+                          error = function(e) NA_character_)
   list(n_samples = n_samples, total_features = total_features, B_dims_json = B_dims_json)
 }

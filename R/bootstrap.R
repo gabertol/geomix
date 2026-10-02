@@ -17,7 +17,9 @@
 #'   KDE block. Each must have a "sample" column. Used for grain resampling.
 #'   Blocks not present here fall back to row-resampling.
 #' @param kde_params Named list of build_kde_block parameters per block.
-#'   Each element: list(vars, n_points, bw_method, bw_multiplier).
+#'   Each element: list(vars, n_points, bw_method, bw_multiplier, probs, grids).
+#'   Pass `probs` and `grids` (e.g. `grids = kde_block$grids`) so the resampled
+#'   KDEs are evaluated on the same bins as the original block.
 #' @param n_boot Number of bootstrap iterations (default: 100)
 #' @param conf_level Confidence level for intervals (default: 0.95)
 #' @param parallel Logical, use parallel processing? (default: FALSE)
@@ -121,6 +123,8 @@ bootstrap_unmix <- function(data_list,
       npts  <- if (!is.null(kpar$n_points))       kpar$n_points      else 129
       bwm   <- if (!is.null(kpar$bw_method))      kpar$bw_method     else "SJ"
       bwmul <- if (!is.null(kpar$bw_multiplier))  kpar$bw_multiplier else 1
+      prb   <- if (!is.null(kpar$probs))          kpar$probs         else c(0.03, 0.97)
+      grd   <- kpar$grids   # fixed grids keep bootstrap bins aligned with the original block
 
       pieces <- lapply(samp_names_, function(s) {
         grains    <- raw[raw[["sample"]] == s, , drop = FALSE]
@@ -134,7 +138,9 @@ bootstrap_unmix <- function(data_list,
         stop("Internal: sample column lost after rbind — pieces[[1]] names: ",
              paste(names(pieces[[1]]), collapse=","))
       blk <- build_kde_block(boot_raw, vars = vars_, n_points = npts,
-                             bw_method = bwm, bw_multiplier = bwmul)
+                             bw_method = bwm, bw_multiplier = bwmul,
+                             probs = prb, grids = grd,
+                             samples_order = samp_names_)
       return(blk$data_mat)
 
     } else if (dtype == "simplex") {

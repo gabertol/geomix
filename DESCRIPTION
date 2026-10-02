@@ -2,7 +2,7 @@ Package: geomix
 Type: Package
 Title: Simultaneous Unmixing of Compositional and Distributional Data for
     Sedimentary Provenance Analysis
-Version: 0.1.0
+Version: 0.1.1
 Authors@R: person("Gabriel", "Bertolini",
     email = "gabertol@gmail.com",
     role = c("aut", "cre"))
@@ -35,7 +35,7 @@ Suggests:
     parallel,
     clue
 VignetteBuilder: knitr
-RoxygenNote: 7.3.1
 URL: https://github.com/gabertol/geomix
 BugReports: https://github.com/gabertol/geomix/issues
 LazyData: true
+Config/roxygen2/version: 8.0.0
