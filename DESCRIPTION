@@ -14,6 +14,7 @@ Description: Provides methods for simultaneous unmixing of compositional data
     methods for uncertainty quantification.
 License: MIT + file LICENSE
 Encoding: UTF-8
+NeedsCompilation: no
 Depends:
     R (>= 3.5.0)
 Imports:
